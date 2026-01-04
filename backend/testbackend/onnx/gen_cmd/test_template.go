@@ -93,9 +93,12 @@ package onnxtest
 // this file is auto-generated... DO NOT EDIT
 
 import (
+    "math"
     "gorgonia.org/tensor"
-  "github.com/owulveryck/onnx-go/backend/testbackend"
+    "github.com/owulveryck/onnx-go/backend/testbackend"
 )
+
+var _ = math.NaN // prevent unused import error
 
 func init() {
 testbackend.Register("{{ .OpType }}","{{ .TestName }}",New{{ .TestName }})

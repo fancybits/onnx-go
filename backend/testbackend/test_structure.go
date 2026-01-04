@@ -140,7 +140,16 @@ func (tc *TestCase) RunTest(b backend.ComputationBackend, parallel bool) func(t 
 					t.Fatalf("the two tensors doesn't have the same dimension, expected %v, got %v", tc.ExpectedOutput[i].Shape(), output[i].Shape())
 				}
 			}
-			assert.InDeltaSlice(tw, tc.ExpectedOutput[i].Data(), output[i].Data(), 1e-6, "the two tensors should be equal.")
+			// Handle boolean tensors separately since InDeltaSlice doesn't work with bools
+			if expectedBools, ok := tc.ExpectedOutput[i].Data().([]bool); ok {
+				outputBools, ok := output[i].Data().([]bool)
+				if !ok {
+					t.Fatalf("expected bool output but got %T", output[i].Data())
+				}
+				assert.Equal(tw, expectedBools, outputBools, "the two boolean tensors should be equal.")
+			} else {
+				assert.InDeltaSlice(tw, tc.ExpectedOutput[i].Data(), output[i].Data(), 1e-6, "the two tensors should be equal.")
+			}
 		}
 
 	}
