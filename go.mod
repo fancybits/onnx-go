@@ -18,7 +18,7 @@ require (
 	golang.org/x/image v0.0.0-20220902085622-e7cb96979f69
 	golang.org/x/tools v0.1.12
 	gonum.org/v1/gonum v0.12.0
-	gorgonia.org/gorgonia v0.9.17 //ct
+	gorgonia.org/gorgonia v0.9.18 //ct
 	gorgonia.org/tensor v0.9.24
 )
 
@@ -34,7 +34,7 @@ require (
 	github.com/rogpeppe/go-internal v1.9.0 // indirect
 	github.com/xtgo/set v1.0.0 // indirect
 	github.com/yuin/goldmark v1.5.2 // indirect
-	go4.org/unsafe/assume-no-moving-gc v0.0.0-20220617031537-928513b29760 // indirect
+	go4.org/unsafe/assume-no-moving-gc v0.0.0-20231121144256-b99613f794b6 // indirect
 	golang.org/x/net v0.0.0-20221002022538-bcab6841153b // indirect
 	golang.org/x/sys v0.0.0-20220928140112-f11e5e49a4ec // indirect
 	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect
@@ -45,3 +45,5 @@ require (
 	gorgonia.org/vecf32 v0.9.0 // indirect
 	gorgonia.org/vecf64 v0.9.0 // indirect
 )
+
+replace gorgonia.org/gorgonia => github.com/fancybits/gorgonia v0.0.0-20260104075048-fee87ffdcfef
