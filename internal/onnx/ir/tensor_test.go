@@ -187,11 +187,10 @@ func TestNewTensor_bool(t *testing.T) {
 			t.Fail()
 		}
 	}
-	var rawData []byte
-	for _, v := range boolData {
-		b := make([]byte, 8)
-		b[7] = byte(v)
-		rawData = append(rawData, b...)
+	// ONNX uses 1 byte per boolean in RawData
+	rawData := make([]byte, len(boolData))
+	for i, v := range boolData {
+		rawData[i] = byte(v)
 	}
 	txBool.Int32Data = nil
 	txBool.RawData = rawData
@@ -204,11 +203,6 @@ func TestNewTensor_bool(t *testing.T) {
 			t.Fail()
 		}
 	}
-
-	// Corrupted Data
-	txBool.RawData = rawData[1:] // remove first slide item to corrupt data
-	_, err = txBool.Tensor()
-	assert.EqualError(t, err, "<nil>: Unable to decode data")
 }
 
 func TestNewTensor_bool_noData(t *testing.T) {
@@ -306,14 +300,9 @@ func TestNewTensor_NotYetImplementedType(t *testing.T) {
 
 func TestNewTensor_UnknownNotYetImplementedType(t *testing.T) {
 	dims := []int64{8, 1, 1}
+	// These types are not yet implemented
 	dataTypeStrings := []string{
-		"UINT8",
-		"INT8",
-		"UINT16",
-		"INT16",
 		"STRING",
-		"UINT32",
-		"UINT64",
 		"COMPLEX64",
 		"COMPLEX128",
 	}

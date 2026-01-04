@@ -22,9 +22,16 @@ func (*shape) apply(graph *Graph, nodes ...*Node) error {
 	if err != nil {
 		return err
 	}
-	s := []int(children[0].gorgoniaNode.Shape())
+	shapeSlice := children[0].gorgoniaNode.Shape()
+	// ONNX expects shapes to be int64 tensors
+	s := make([]int64, len(shapeSlice))
+	for i, v := range shapeSlice {
+		s[i] = int64(v)
+	}
 	t := tensor.New(tensor.WithShape(len(s)), tensor.WithBacking(s))
-	nodes[0].gorgoniaNode = gorgonia.NewConstant(t)
+	// Set both t (for immediate access in shape computations) and gorgoniaNode (for graph execution)
+	nodes[0].t = t
+	nodes[0].gorgoniaNode = gorgonia.NodeFromAny(graph.exprgraph, t, gorgonia.WithName(getUniqNodeName("shape")))
 
 	return nil
 }

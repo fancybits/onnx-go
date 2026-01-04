@@ -1,15 +1,12 @@
 package gorgonnx
 
 import (
-	"context"
 	"errors"
-	"time"
 
 	"github.com/owulveryck/onnx-go"
 	"gonum.org/v1/gonum/graph"
 	"gonum.org/v1/gonum/graph/simple"
 	"gorgonia.org/gorgonia"
-	xvm "gorgonia.org/gorgonia/x/vm"
 	"gorgonia.org/tensor"
 )
 
@@ -20,7 +17,7 @@ import (
 type Graph struct {
 	g         *simple.WeightedDirectedGraph
 	exprgraph *gorgonia.ExprGraph
-	m         *xvm.Machine
+	m         gorgonia.VM
 	roots     []int64
 	groups    [][]*Node // a reference of all the nodes that belongs to a group
 }
@@ -62,19 +59,15 @@ func (g *Graph) Run() error {
 			return err
 		}
 	}
-	//if g.m == nil {
-	g.m = xvm.NewMachine(g.exprgraph)
-	defer g.m.Close()
-	//g.m = gorgonia.NewTapeMachine(g.exprgraph)
-	//}
 
-	//err := g.m.RunAll()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	err := g.m.Run(ctx)
+	g.m = gorgonia.NewTapeMachine(g.exprgraph)
+	defer g.m.Close()
+
+	err := g.m.RunAll()
 	if err != nil {
 		return err
 	}
+
 	// Now sets the output tensor
 	for i := 0; i < len(g.roots); i++ {
 		root := g.Node(g.roots[i]).(*Node)
@@ -82,8 +75,7 @@ func (g *Graph) Run() error {
 		if root.gorgoniaNode == nil {
 			return errors.New("root node is nil")
 		}
-		root.t, ok = g.m.GetResult(root.gorgoniaNode.ID()).(tensor.Tensor)
-		//root.t, ok = root.gorgoniaNode.Value().(tensor.Tensor)
+		root.t, ok = root.gorgoniaNode.Value().(tensor.Tensor)
 		if !ok {
 			return errors.New("root node is not a tensor")
 		}

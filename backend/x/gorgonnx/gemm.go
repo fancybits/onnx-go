@@ -70,6 +70,9 @@ func (o *gemm) InferShape(inputs ...gorgonia.DimSizer) (tensor.Shape, error) {
 }
 
 func (o *gemm) Do(inputs ...gorgonia.Value) (gorgonia.Value, error) {
+	if len(inputs) < 2 {
+		return nil, errors.New("gemm: requires at least 2 inputs")
+	}
 	var a tensor.Tensor
 	var ok bool
 	if a, ok = inputs[0].(tensor.Tensor); !ok {
@@ -91,32 +94,45 @@ func (o *gemm) do32(inputs ...gorgonia.Value) (gorgonia.Value, error) {
 		return nil, err
 	}
 
-	s, err := o.InferShape(a.Shape(), b.Shape(), c.Shape())
+	s, err := o.InferShape(a.Shape(), b.Shape())
 	if err != nil {
 		return nil, err
 	}
 	m := s[0]
 	n := s[1]
-	backend, ok := c.Data().([]float32)
-	if c.DataSize() != m*n || !ok {
+
+	// Initialize backend for result
+	var backend []float32
+	beta := o.beta
+
+	if c == nil {
+		// No bias - initialize with zeros and use beta=0
 		backend = make([]float32, m*n)
-		switch c.DataSize() {
-		case 0:
-			for i := 0; i < len(backend); i++ {
-				backend[i] = c.Data().(float32)
+		beta = 0
+	} else {
+		var ok bool
+		backend, ok = c.Data().([]float32)
+		if c.DataSize() != m*n || !ok {
+			backend = make([]float32, m*n)
+			switch c.DataSize() {
+			case 0:
+				for i := 0; i < len(backend); i++ {
+					backend[i] = c.Data().(float32)
+				}
+			case 1:
+				for i := 0; i < len(backend); i++ {
+					backend[i] = c.Data().([]float32)[0]
+				}
+			case n:
+				for i := 0; i < m; i++ {
+					copy(backend[i*n:(i+1)*n], c.Data().([]float32))
+				}
+			default:
+				return nil, errors.New("Gemm: unhandled shape for C broadcast not fully suported")
 			}
-		case 1:
-			for i := 0; i < len(backend); i++ {
-				backend[i] = c.Data().([]float32)[0]
-			}
-		case n:
-			for i := 0; i < m; i++ {
-				copy(backend[i*n:(i+1)*n], c.Data().([]float32))
-			}
-		default:
-			return nil, errors.New("Gemm: unhandled shape for C broadcast not fully suported")
 		}
 	}
+
 	transA := blas.NoTrans
 	transB := blas.NoTrans
 	if o.transA {
@@ -138,7 +154,7 @@ func (o *gemm) do32(inputs ...gorgonia.Value) (gorgonia.Value, error) {
 			Stride: b.Strides()[0],
 			Data:   b.Data().([]float32),
 		},
-		o.beta,
+		beta,
 		blas32.General{
 			Rows:   m,
 			Cols:   n,
@@ -153,33 +169,45 @@ func (o *gemm) do64(inputs ...gorgonia.Value) (gorgonia.Value, error) {
 		return nil, err
 	}
 
-	s, err := o.InferShape(a.Shape(), b.Shape(), c.Shape())
+	s, err := o.InferShape(a.Shape(), b.Shape())
 	if err != nil {
 		return nil, err
 	}
 	m := s[0]
 	n := s[1]
-	backend, ok := c.Data().([]float64)
-	if c.DataSize() != m*n || !ok {
+
+	// Initialize backend for result
+	var backend []float64
+	beta := float64(o.beta)
+
+	if c == nil {
+		// No bias - initialize with zeros and use beta=0
 		backend = make([]float64, m*n)
-		switch c.DataSize() {
-		case 0:
-			for i := 0; i < len(backend); i++ {
-				backend[i] = c.Data().(float64)
+		beta = 0
+	} else {
+		var ok bool
+		backend, ok = c.Data().([]float64)
+		if c.DataSize() != m*n || !ok {
+			backend = make([]float64, m*n)
+			switch c.DataSize() {
+			case 0:
+				for i := 0; i < len(backend); i++ {
+					backend[i] = c.Data().(float64)
+				}
+			case 1:
+				for i := 0; i < len(backend); i++ {
+					backend[i] = c.Data().([]float64)[0]
+				}
+			case n:
+				for i := 0; i < m; i++ {
+					copy(backend[i*n:(i+1)*n], c.Data().([]float64))
+				}
+			default:
+				return nil, errors.New("Gemm: unhandled shape for C broadcast not fully suported")
 			}
-		case 1:
-			for i := 0; i < len(backend); i++ {
-				backend[i] = c.Data().([]float64)[0]
-			}
-		case n:
-			for i := 0; i < m; i++ {
-				copy(backend[i*n:(i+1)*n], c.Data().([]float64))
-			}
-		default:
-			return nil, errors.New("Gemm: unhandled shape for C broadcast not fully suported")
 		}
-		c = tensor.New(tensor.WithShape(m, n), tensor.WithBacking(backend))
 	}
+
 	transA := blas.NoTrans
 	transB := blas.NoTrans
 	if o.transA {
@@ -188,7 +216,6 @@ func (o *gemm) do64(inputs ...gorgonia.Value) (gorgonia.Value, error) {
 	if o.transB {
 		transB = blas.Trans
 	}
-	// do we need to broadcast?
 	blas64.Gemm(transA, transB, float64(o.alpha),
 		blas64.General{
 			Rows:   a.Shape()[0],
@@ -202,7 +229,7 @@ func (o *gemm) do64(inputs ...gorgonia.Value) (gorgonia.Value, error) {
 			Stride: b.Strides()[0],
 			Data:   b.Data().([]float64),
 		},
-		float64(o.beta),
+		beta,
 		blas64.General{
 			Rows:   m,
 			Cols:   n,
@@ -217,13 +244,16 @@ func gorgoniaValueToTensors(inputs ...gorgonia.Value) (tensor.Tensor, tensor.Ten
 	var a, b, c tensor.Tensor
 	var ok bool
 	if a, ok = inputs[0].(tensor.Tensor); !ok {
-		return nil, nil, nil, errors.New("gemm: not a tensor")
+		return nil, nil, nil, errors.New("gemm: input A is not a tensor")
 	}
 	if b, ok = inputs[1].(tensor.Tensor); !ok {
-		return nil, nil, nil, errors.New("gemm: not a tensor")
+		return nil, nil, nil, errors.New("gemm: input B is not a tensor")
 	}
-	if c, ok = inputs[2].(tensor.Tensor); !ok {
-		return nil, nil, nil, errors.New("gemm: not a tensor")
+	// C (bias) is optional
+	if len(inputs) > 2 {
+		if c, ok = inputs[2].(tensor.Tensor); !ok {
+			return nil, nil, nil, errors.New("gemm: input C is not a tensor")
+		}
 	}
 	return a, b, c, nil
 }
@@ -255,26 +285,41 @@ func (o *gemm) String() string {
 }
 
 // Compute Y = alpha * A' * B' + beta * C, where
-//  * input tensor A has shape (M, K) or (K, M),
-//  * input tensor B has shape (K, N) or (N, K),
-//  * input tensor C is broadcastable to shape (M, N),
-//  * output tensor Y has shape (M, N).
+//   - input tensor A has shape (M, K) or (K, M),
+//   - input tensor B has shape (K, N) or (N, K),
+//   - input tensor C is broadcastable to shape (M, N) (optional),
+//   - output tensor Y has shape (M, N).
+//
 // A will be transposed before doing the computation if attribute transA is non-zero,
 // same for B and transB.
-// This operator supports unidirectional broadcasting i
+// This operator supports unidirectional broadcasting
 // (tensor C should be unidirectional broadcastable to tensor A * B);
 //
 // https://github.com/onnx/onnx/blob/master/docs/Operators.md#Gemm
 func (o *gemm) apply(g *Graph, ns ...*Node) error {
 	n := ns[0]
 	children := getOrderedChildren(g.g, n)
-	err := checkCondition(children, 3)
-	if err != nil {
-		return err
+	if len(children) < 2 || len(children) > 3 {
+		return fmt.Errorf("gemm: expected 2 or 3 inputs, got %d", len(children))
 	}
 	a := children[0].gorgoniaNode
 	b := children[1].gorgoniaNode
-	c := children[2].gorgoniaNode
+
+	var c *gorgonia.Node
+	if len(children) == 3 {
+		c = children[2].gorgoniaNode
+	} else {
+		// Create a zero bias tensor with shape (1,) - will be broadcast
+		zeroBias := tensor.New(tensor.WithShape(1), tensor.WithBacking([]float32{0}))
+		if a.Dtype() == gorgonia.Float64 {
+			zeroBias = tensor.New(tensor.WithShape(1), tensor.WithBacking([]float64{0}))
+		}
+		c = gorgonia.NodeFromAny(g.exprgraph, zeroBias, gorgonia.WithName(getUniqNodeName("gemm_zero_bias")))
+		// Set beta to 0 since we're using a dummy bias
+		o.beta = 0
+	}
+
+	var err error
 	n.gorgoniaNode, err = gorgonia.ApplyOp(o, a, b, c)
 	return err
 }

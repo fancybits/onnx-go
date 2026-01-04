@@ -28,14 +28,21 @@ func (f *flatten) apply(g *Graph, ns ...*Node) error {
 	}
 	s := make([]int, len(children[0].gorgoniaNode.Shape()))
 	copy(s, children[0].gorgoniaNode.Shape())
+
+	// Handle negative axis
+	axis := int(f.axis)
+	if axis < 0 {
+		axis = len(s) + axis
+	}
+
 	var x, y int
 	x = 1
 	y = 1
 	for i := 0; i < len(s); i++ {
-		if i < int(f.axis) {
+		if i < axis {
 			x *= s[i]
 		}
-		if i >= int(f.axis) {
+		if i >= axis {
 			y *= s[i]
 		}
 	}

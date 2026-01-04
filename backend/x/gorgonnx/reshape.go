@@ -27,32 +27,37 @@ func (a *reshape) inferShape(requiredShape interface{}, targetShape tensor.Shape
 		data = []int64{to}
 	}
 	if to, ok := data.([]int64); ok {
-		childShape := make([]int, len(to))
-		copy(childShape, targetShape)
+		// Calculate total size of input tensor
+		dimSize := targetShape.TotalSize()
+
+		// Build output shape, handling 0 and -1 special values
 		toShape = make([]int, len(to))
-		dimSize := 1
-		for i := 0; i < len(childShape); i++ {
-			dimSize *= childShape[i]
-		}
+		inferIdx := -1 // index of the -1 dimension to infer
+		knownProduct := 1
+
 		for i := 0; i < len(to); i++ {
 			toShape[i] = int(to[i])
-		}
-		for i := 0; i < len(toShape); i++ {
 			if toShape[i] == 0 {
-				toShape[i] = childShape[i]
-			}
-		}
-		actualSize := 1
-		for i := 0; i < len(toShape); i++ {
-			actualSize *= toShape[i]
-		}
-		for i := 0; i < len(toShape); i++ {
-			if toShape[i] == -1 {
-				toShape[i] = dimSize / actualSize
-				if toShape[i] == 0 {
-					toShape = append(toShape[:i], toShape[i+1:]...)
+				// 0 means copy from input shape at same index
+				if i < len(targetShape) {
+					toShape[i] = targetShape[i]
+				} else {
+					toShape[i] = 1
 				}
 			}
+			if toShape[i] == -1 {
+				inferIdx = i
+			} else {
+				knownProduct *= toShape[i]
+			}
+		}
+
+		// Infer the -1 dimension
+		if inferIdx >= 0 {
+			if knownProduct == 0 {
+				return fmt.Errorf("Cannot reshape: known product is 0")
+			}
+			toShape[inferIdx] = dimSize / knownProduct
 		}
 	} else {
 		return fmt.Errorf("Cannot reshape, bad output shape %#v", requiredShape)
@@ -69,7 +74,17 @@ func (a *reshape) apply(g *Graph, ns ...*Node) error {
 		return err
 	}
 
-	err = a.inferShape(children[1].gorgoniaNode.Value().Data(), children[0].gorgoniaNode.Shape())
+	// Get the target shape from child node - try gorgoniaNode.Value() first, fallback to t
+	var shapeData interface{}
+	if children[1].gorgoniaNode != nil && children[1].gorgoniaNode.Value() != nil {
+		shapeData = children[1].gorgoniaNode.Value().Data()
+	} else if children[1].t != nil {
+		shapeData = children[1].t.Data()
+	} else {
+		return fmt.Errorf("reshape: shape input has no value")
+	}
+
+	err = a.inferShape(shapeData, children[0].gorgoniaNode.Shape())
 	if err != nil {
 		return err
 	}

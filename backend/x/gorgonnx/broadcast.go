@@ -34,7 +34,11 @@ func ggnReshapedBroadcast(a, b *gorgonia.Node) (*gorgonia.Node, *gorgonia.Node, 
 	case len(a.Shape()) != 1 && len(b.Shape()) == 1:
 		reshapedB, err = reshapeNode(b, a, true)
 	case len(a.Shape()) == 2 && len(b.Shape()) == 2:
-		// No reshaping needed
+		// No reshaping needed, let Broadcast handle it
+	case len(a.Shape()) == 3 && len(b.Shape()) == 3:
+		// Same rank, let Broadcast handle dimension-wise broadcasting
+	case len(a.Shape()) == 4 && len(b.Shape()) == 4:
+		// Same rank, let Broadcast handle dimension-wise broadcasting
 	case len(a.Shape()) == 3 && len(b.Shape()) == 4:
 		reshapedA, err = gorgonia.Reshape(a, append([]int{1}, a.Shape()...))
 	case len(a.Shape()) == 4 && len(b.Shape()) == 3:

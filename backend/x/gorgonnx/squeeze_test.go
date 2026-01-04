@@ -69,7 +69,7 @@ func TestSqueeze_Scalar(t *testing.T) {
 	}
 
 	outputT := output.(*Node).GetTensor()
-	assert.InDelta(t, expectedOutput.Data(), outputT.Data(), 1e-6, "the two tensors should be equal.")
+	assert.InDeltaSlice(t, expectedOutput.Data(), outputT.Data(), 1e-6, "the two tensors should be equal.")
 }
 
 func TestSqueeze_Axis(t *testing.T) {

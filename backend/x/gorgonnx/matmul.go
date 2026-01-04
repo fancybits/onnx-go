@@ -22,14 +22,43 @@ func (a *matMul) apply(g *Graph, ns ...*Node) error {
 	if err != nil {
 		return err
 	}
-	if len(children[0].gorgoniaNode.Shape()) > 2 || len(children[1].gorgoniaNode.Shape()) > 2 {
+
+	aNode := children[0].gorgoniaNode
+	bNode := children[1].gorgoniaNode
+	aDims := len(aNode.Shape())
+	bDims := len(bNode.Shape())
+
+	// Handle different dimension cases
+	switch {
+	case aDims <= 2 && bDims <= 2:
+		// Standard 2D matrix multiplication
+		n.gorgoniaNode, err = gorgonia.Mul(aNode, bNode)
+	case aDims == 3 && bDims == 3:
+		// Batched matrix multiplication
+		n.gorgoniaNode, err = gorgonia.BatchedMatMul(aNode, bNode)
+	case aDims == 3 && bDims == 2:
+		// Broadcast b to match batch dimension of a
+		// Reshape b from (K, N) to (1, K, N) then broadcast
+		bShape := bNode.Shape()
+		bNode, err = gorgonia.Reshape(bNode, []int{1, bShape[0], bShape[1]})
+		if err != nil {
+			return err
+		}
+		n.gorgoniaNode, err = gorgonia.BatchedMatMul(aNode, bNode)
+	case aDims == 2 && bDims == 3:
+		// Broadcast a to match batch dimension of b
+		aShape := aNode.Shape()
+		aNode, err = gorgonia.Reshape(aNode, []int{1, aShape[0], aShape[1]})
+		if err != nil {
+			return err
+		}
+		n.gorgoniaNode, err = gorgonia.BatchedMatMul(aNode, bNode)
+	default:
 		return &onnx.ErrNotImplemented{
 			Operator: "Matmul",
 			Message:  "dimension too high",
 		}
 	}
-
-	n.gorgoniaNode, err = gorgonia.Mul(children[0].gorgoniaNode, children[1].gorgoniaNode)
 
 	return err
 }

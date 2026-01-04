@@ -3,6 +3,7 @@ package gorgonnx
 import (
 	"errors"
 	"fmt"
+	"runtime/debug"
 
 	"github.com/owulveryck/onnx-go"
 	"gorgonia.org/gorgonia"
@@ -79,5 +80,11 @@ func (g *Graph) applyOperation(n ...*Node) error {
 	if err != nil {
 		return err
 	}
+	// Wrap apply in recover to show operator name and stack trace on panic
+	defer func() {
+		if r := recover(); r != nil {
+			panic(fmt.Sprintf("panic in operator %s: %v\n%s", n[0].operation.Name, r, debug.Stack()))
+		}
+	}()
 	return op.apply(g, n...)
 }

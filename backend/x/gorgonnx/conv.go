@@ -2,6 +2,7 @@ package gorgonnx
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/owulveryck/onnx-go"
 	"gorgonia.org/gorgonia"
@@ -42,19 +43,36 @@ func (c *conv) apply(g *Graph, ns ...*Node) error {
 	if err != nil {
 		return err
 	}
-	convN, err := nnops.Conv2d(
-		children[0].gorgoniaNode,
-		children[1].gorgoniaNode,
-		c.kernelShape,
-		c.pad,
-		c.stride,
-		c.dilation)
-	if err != nil {
-		return &errOp{
-			"conv",
-			err,
+	// If kernelShape wasn't set from attribute, derive it from the filter tensor
+	if c.kernelShape == nil {
+		filterShape := children[1].gorgoniaNode.Shape()
+		if len(filterShape) >= 2 {
+			c.kernelShape = filterShape[len(filterShape)-2:] // Last 2 dimensions (H, W)
 		}
 	}
+
+	var convN *gorgonia.Node
+
+	if c.group > 1 {
+		// Grouped convolution: split input and filter, apply conv per group, concatenate
+		convN, err = c.applyGroupedConv(children[0].gorgoniaNode, children[1].gorgoniaNode)
+		if err != nil {
+			return &errOp{"conv", err}
+		}
+	} else {
+		// Standard convolution
+		convN, err = nnops.Conv2d(
+			children[0].gorgoniaNode,
+			children[1].gorgoniaNode,
+			c.kernelShape,
+			c.pad,
+			c.stride,
+			c.dilation)
+		if err != nil {
+			return &errOp{"conv", err}
+		}
+	}
+
 	if len(children) == 3 {
 		b, err := gorgonia.Reshape(children[2].gorgoniaNode, []int{1, children[2].gorgoniaNode.Shape()[0], 1, 1})
 		if err != nil {
@@ -81,6 +99,112 @@ func (c *conv) apply(g *Graph, ns ...*Node) error {
 		n.gorgoniaNode = convN
 	}
 	return nil
+}
+
+// applyGroupedConv implements grouped convolution by splitting input and filter,
+// applying separate convolutions per group, and concatenating the results.
+// This handles depthwise convolutions (group == in_channels) and general grouped convolutions.
+func (c *conv) applyGroupedConv(input, filter *gorgonia.Node) (*gorgonia.Node, error) {
+	inputShape := input.Shape()
+	filterShape := filter.Shape()
+
+	// Debug: print input shapes
+	if inputShape.Dims() != 4 {
+		return nil, fmt.Errorf("grouped conv: input should be 4D, got %dD (shape=%v)", inputShape.Dims(), inputShape)
+	}
+	if filterShape.Dims() != 4 {
+		return nil, fmt.Errorf("grouped conv: filter should be 4D, got %dD (shape=%v)", filterShape.Dims(), filterShape)
+	}
+
+	// Input shape: (N, C_in, H, W)
+	// Filter shape: (C_out, C_in/group, Kh, Kw)
+	inChannels := inputShape[1]
+	outChannels := filterShape[0]
+	channelsPerGroupIn := inChannels / c.group
+	channelsPerGroupOut := outChannels / c.group
+
+	// Validate dimensions
+	if inChannels%c.group != 0 {
+		return nil, errors.New("Conv: input channels must be divisible by group")
+	}
+	if outChannels%c.group != 0 {
+		return nil, errors.New("Conv: output channels must be divisible by group")
+	}
+
+	groupOutputs := make([]*gorgonia.Node, c.group)
+
+	for grp := 0; grp < c.group; grp++ {
+		// Slice input channels for this group
+		inStart := grp * channelsPerGroupIn
+		inEnd := inStart + channelsPerGroupIn
+
+		inputSlice, err := gorgonia.Slice(input,
+			nil, // batch: all
+			tensor.S(inStart, inEnd), // channels: this group
+			nil, // height: all
+			nil, // width: all
+		)
+		if err != nil {
+			return nil, fmt.Errorf("slicing input: %w", err)
+		}
+
+		// Check if slice squeezed dimensions - gorgonia may squeeze singleton dims
+		if inputSlice.Shape().Dims() != 4 {
+			// Reshape to restore 4D: (batch, channels_per_group, height, width)
+			newShape := tensor.Shape{inputShape[0], channelsPerGroupIn, inputShape[2], inputShape[3]}
+			inputSlice, err = gorgonia.Reshape(inputSlice, newShape)
+			if err != nil {
+				return nil, fmt.Errorf("reshaping input slice from %v to %v: %w", inputSlice.Shape(), newShape, err)
+			}
+		}
+
+		// Slice filter for this group
+		outStart := grp * channelsPerGroupOut
+		outEnd := outStart + channelsPerGroupOut
+
+		filterSlice, err := gorgonia.Slice(filter,
+			tensor.S(outStart, outEnd), // output channels: this group
+			nil, // input channels per group: all
+			nil, // kernel height: all
+			nil, // kernel width: all
+		)
+		if err != nil {
+			return nil, fmt.Errorf("slicing filter: %w", err)
+		}
+
+		// Check if slice squeezed dimensions
+		if filterSlice.Shape().Dims() != 4 {
+			// Reshape to restore 4D: (out_channels_per_group, in_channels_per_group, kH, kW)
+			newShape := tensor.Shape{channelsPerGroupOut, filterShape[1], filterShape[2], filterShape[3]}
+			filterSlice, err = gorgonia.Reshape(filterSlice, newShape)
+			if err != nil {
+				return nil, fmt.Errorf("reshaping filter slice from %v to %v: %w", filterSlice.Shape(), newShape, err)
+			}
+		}
+
+		// Apply convolution for this group
+		groupConv, err := nnops.Conv2d(
+			inputSlice,
+			filterSlice,
+			c.kernelShape,
+			c.pad,
+			c.stride,
+			c.dilation)
+		if err != nil {
+			return nil, fmt.Errorf("group %d: inputSlice=%v, filterSlice=%v, kernelShape=%v: %w",
+				grp, inputSlice.Shape(), filterSlice.Shape(), c.kernelShape, err)
+		}
+
+		groupOutputs[grp] = groupConv
+	}
+
+	// Concatenate all group outputs along channel axis
+	result, err := gorgonia.Concat(1, groupOutputs...)
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
 }
 
 // autopadding needs to be applied now because it needs to be aware of the shape of the nodes
@@ -123,9 +247,23 @@ func (c *conv) init(o onnx.Operation) error {
 	}
 	c.initKernelShape(o)
 	err := c.initPads(o)
+	if err != nil {
+		return err
+	}
 	c.initStrides(o)
 	c.initDilations(o)
-	return err
+	c.initGroup(o)
+	return nil
+}
+
+func (c *conv) initGroup(o onnx.Operation) {
+	c.group = 1
+	group, ok := o.Attributes["group"]
+	if ok {
+		if g, ok := group.(int64); ok {
+			c.group = int(g)
+		}
+	}
 }
 
 func (c *conv) initKernelShape(o onnx.Operation) {
@@ -146,7 +284,10 @@ func (c *conv) initPads(o onnx.Operation) error {
 	if ok {
 		if pad, ok := pad.([]int64); ok {
 
-			if len(pad) == 4 && (pad[0] != pad[1] || pad[2] != pad[3]) {
+			// ONNX pads format: [x1_begin, x2_begin, x1_end, x2_end]
+			// For symmetric padding, begin must equal end for each dimension:
+			// pad[0] == pad[2] (dimension 1) and pad[1] == pad[3] (dimension 2)
+			if len(pad) == 4 && (pad[0] != pad[2] || pad[1] != pad[3]) {
 				return &onnx.ErrNotImplemented{
 					Operator:       "Conv",
 					AttributeName:  "pads",
@@ -156,9 +297,10 @@ func (c *conv) initPads(o onnx.Operation) error {
 			}
 
 			if len(pad) == 4 {
-				for i := 0; i < 2; i++ {
-					c.pad[i] = int(pad[2*i])
-				}
+				// Since padding is symmetric (validated above),
+				// use begin padding for each dimension
+				c.pad[0] = int(pad[0]) // height (dimension 1)
+				c.pad[1] = int(pad[1]) // width (dimension 2)
 			} else if len(pad) == 2 {
 				for i := 0; i < 2; i++ {
 					c.pad[i] = int(pad[i])

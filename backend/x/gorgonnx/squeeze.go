@@ -24,9 +24,34 @@ func newSqueeze() operator {
 func (a *squeeze) apply(g *Graph, ns ...*Node) error {
 	n := ns[0]
 	children := getOrderedChildren(g.g, n)
-	err := checkCondition(children, 1)
-	if err != nil {
-		return err
+
+	// ONNX opset 13+ has axes as a second input rather than attribute
+	if len(children) == 2 {
+		// Get axes from second input
+		axesNode := children[1]
+		var axesTensor interface{}
+		if axesNode.gorgoniaNode != nil && axesNode.gorgoniaNode.Value() != nil {
+			axesTensor = axesNode.gorgoniaNode.Value().Data()
+		} else if axesNode.t != nil {
+			axesTensor = axesNode.t.Data()
+		}
+		if axesTensor != nil {
+			switch axes := axesTensor.(type) {
+			case []int64:
+				a.Axes = axes
+			case int64:
+				a.Axes = []int64{axes}
+			case []int32:
+				a.Axes = make([]int64, len(axes))
+				for i, v := range axes {
+					a.Axes[i] = int64(v)
+				}
+			case int32:
+				a.Axes = []int64{int64(axes)}
+			}
+		}
+	} else if len(children) != 1 {
+		return fmt.Errorf("squeeze: expected 1 or 2 children, got %d", len(children))
 	}
 
 	tensor := children[0].gorgoniaNode
@@ -60,7 +85,13 @@ func (a *squeeze) apply(g *Graph, ns ...*Node) error {
 		// Make a mask with the axes to remove
 		mask := make([]bool, tensor.Dims())
 		for _, v := range a.Axes {
-			mask[v] = true
+			// Handle negative axes
+			if v < 0 {
+				v = int64(tensor.Dims()) + v
+			}
+			if v >= 0 && v < int64(tensor.Dims()) {
+				mask[v] = true
+			}
 		}
 		// If an axis is selected with shape entry not equal to one, an error is raised.
 		index := 0
@@ -76,6 +107,7 @@ func (a *squeeze) apply(g *Graph, ns ...*Node) error {
 		}
 	}
 
+	var err error
 	n.gorgoniaNode, err = gorgonia.Reshape(tensor, dims)
 
 	return err
