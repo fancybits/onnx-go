@@ -60,7 +60,11 @@ func (g *Graph) Run() error {
 		}
 	}
 
-	g.m = gorgonia.NewTapeMachine(g.exprgraph)
+	// Use LispMachine instead of TapeMachine for inference.
+	// TapeMachine has a register reuse optimization that can cause incorrect results
+	// when operations share memory in complex graphs.
+	// LispMachine executes operations as it traverses the graph without register pooling.
+	g.m = gorgonia.NewLispMachine(g.exprgraph, gorgonia.ExecuteFwdOnly())
 	defer g.m.Close()
 
 	err := g.m.RunAll()
