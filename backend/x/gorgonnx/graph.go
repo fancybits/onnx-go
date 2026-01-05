@@ -53,6 +53,12 @@ func (g *Graph) ApplyOperation(o onnx.Operation, ns ...graph.Node) error {
 
 // Run the graph. It populate the underlying exprgraph if the graph is nil
 func (g *Graph) Run() error {
+	return g.RunWithVM("lisp")
+}
+
+// RunWithVM runs the graph with the specified VM type ("lisp" or "tape").
+// This is primarily for testing to compare VM behaviors.
+func (g *Graph) RunWithVM(vmType string) error {
 	if g.exprgraph == nil {
 		err := g.PopulateExprgraph()
 		if err != nil {
@@ -60,11 +66,19 @@ func (g *Graph) Run() error {
 		}
 	}
 
-	// Use LispMachine instead of TapeMachine for inference.
-	// TapeMachine has a register reuse optimization that can cause incorrect results
-	// when operations share memory in complex graphs.
-	// LispMachine executes operations as it traverses the graph without register pooling.
-	g.m = gorgonia.NewLispMachine(g.exprgraph, gorgonia.ExecuteFwdOnly())
+	// Create VM based on type
+	switch vmType {
+	case "tape":
+		g.m = gorgonia.NewTapeMachine(g.exprgraph)
+	case "lisp":
+		// Use LispMachine for inference.
+		// TapeMachine has a register reuse optimization that can cause incorrect results
+		// when operations share memory in complex graphs.
+		// LispMachine executes operations as it traverses the graph without register pooling.
+		g.m = gorgonia.NewLispMachine(g.exprgraph, gorgonia.ExecuteFwdOnly())
+	default:
+		return errors.New("unknown VM type: " + vmType + " (use 'lisp' or 'tape')")
+	}
 	defer g.m.Close()
 
 	err := g.m.RunAll()
