@@ -53,7 +53,7 @@ func (g *Graph) ApplyOperation(o onnx.Operation, ns ...graph.Node) error {
 
 // Run the graph. It populate the underlying exprgraph if the graph is nil
 func (g *Graph) Run() error {
-	return g.RunWithVM("lisp")
+	return g.RunWithVM("tape")
 }
 
 // RunWithVM runs the graph with the specified VM type ("lisp" or "tape").

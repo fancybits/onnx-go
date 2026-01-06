@@ -46,4 +46,4 @@ require (
 	gorgonia.org/vecf64 v0.9.0 // indirect
 )
 
-replace gorgonia.org/gorgonia => github.com/fancybits/gorgonia v0.0.0-20260104075048-fee87ffdcfef
+replace gorgonia.org/gorgonia => github.com/fancybits/gorgonia v0.0.0-20260106072031-b20a75ccd6e3
