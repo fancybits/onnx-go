@@ -71,10 +71,6 @@ func (g *Graph) RunWithVM(vmType string) error {
 	case "tape":
 		g.m = gorgonia.NewTapeMachine(g.exprgraph)
 	case "lisp":
-		// Use LispMachine for inference.
-		// TapeMachine has a register reuse optimization that can cause incorrect results
-		// when operations share memory in complex graphs.
-		// LispMachine executes operations as it traverses the graph without register pooling.
 		g.m = gorgonia.NewLispMachine(g.exprgraph, gorgonia.ExecuteFwdOnly())
 	default:
 		return errors.New("unknown VM type: " + vmType + " (use 'lisp' or 'tape')")

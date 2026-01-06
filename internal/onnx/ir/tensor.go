@@ -1,9 +1,7 @@
 package ir
 
 import (
-	"bytes"
 	"encoding/binary"
-	"io"
 	"math"
 
 	"github.com/pkg/errors"
@@ -86,21 +84,15 @@ func generateConsOptsFromBoolTensor(tx *TensorProto) ([]tensor.ConsOpt, error) {
 func generateConsOptsFromFloat32Tensor(tx *TensorProto) ([]tensor.ConsOpt, error) {
 	switch {
 	case tx.RawData != nil:
-		buf := bytes.NewReader(tx.RawData)
-		element := make([]byte, 4)
-		var err error
-		var backing []float32
-		for {
-			var n int
-			n, err = buf.Read(element)
-			if err != nil || n != 4 {
-				break
-			}
-			uintElement := binary.LittleEndian.Uint32(element)
-			backing = append(backing, math.Float32frombits(uintElement))
+		if len(tx.RawData)%4 != 0 {
+			return nil, errors.Wrapf(ErrCorruptedData, "%v", nil)
 		}
-		if err != io.EOF {
-			return nil, errors.Wrapf(ErrCorruptedData, "%v", err)
+		numFloats := len(tx.RawData) / 4
+		backing := make([]float32, numFloats)
+		for i := 0; i < numFloats; i++ {
+			offset := i * 4
+			uintElement := binary.LittleEndian.Uint32(tx.RawData[offset : offset+4])
+			backing[i] = math.Float32frombits(uintElement)
 		}
 		return []tensor.ConsOpt{tensor.WithBacking(backing)}, nil
 	case tx.FloatData != nil:
@@ -115,21 +107,15 @@ func generateConsOptsFromFloat64Tensor(tx *TensorProto) ([]tensor.ConsOpt, error
 	case tx.DoubleData != nil:
 		return []tensor.ConsOpt{tensor.WithBacking(tx.DoubleData)}, nil
 	case tx.RawData != nil:
-		buf := bytes.NewReader(tx.RawData)
-		element := make([]byte, 8)
-		var err error
-		var backing []float64
-		for {
-			var n int
-			n, err = buf.Read(element)
-			if err != nil || n != 8 {
-				break
-			}
-			uintElement := binary.LittleEndian.Uint64(element)
-			backing = append(backing, math.Float64frombits(uintElement))
+		if len(tx.RawData)%8 != 0 {
+			return nil, errors.Wrapf(ErrCorruptedData, "%v", nil)
 		}
-		if err != io.EOF {
-			return nil, errors.Wrapf(ErrCorruptedData, "%v", err)
+		numFloats := len(tx.RawData) / 8
+		backing := make([]float64, numFloats)
+		for i := 0; i < numFloats; i++ {
+			offset := i * 8
+			uintElement := binary.LittleEndian.Uint64(tx.RawData[offset : offset+8])
+			backing[i] = math.Float64frombits(uintElement)
 		}
 		return []tensor.ConsOpt{tensor.WithBacking(backing)}, nil
 	default:
@@ -140,22 +126,15 @@ func generateConsOptsFromFloat64Tensor(tx *TensorProto) ([]tensor.ConsOpt, error
 func generateConsOptsFromInt64Tensor(tx *TensorProto) ([]tensor.ConsOpt, error) {
 	switch {
 	case tx.RawData != nil:
-		buf := bytes.NewReader(tx.RawData)
-		element := make([]byte, 8)
-		var err error
-		var backing []int64
-		for {
-			var n int
-			n, err = buf.Read(element)
-			if err != nil || n != 8 {
-				break
-			}
-			uintElement := binary.LittleEndian.Uint64(element)
-			backing = append(backing, int64(uintElement))
+		if len(tx.RawData)%8 != 0 {
+			return nil, errors.Wrapf(ErrCorruptedData, "%v", nil)
 		}
-
-		if err != io.EOF {
-			return nil, errors.Wrapf(ErrCorruptedData, "%v", err)
+		numInts := len(tx.RawData) / 8
+		backing := make([]int64, numInts)
+		for i := 0; i < numInts; i++ {
+			offset := i * 8
+			uintElement := binary.LittleEndian.Uint64(tx.RawData[offset : offset+8])
+			backing[i] = int64(uintElement)
 		}
 		return []tensor.ConsOpt{tensor.WithBacking(backing)}, nil
 	case tx.Int64Data != nil:
@@ -168,21 +147,15 @@ func generateConsOptsFromInt64Tensor(tx *TensorProto) ([]tensor.ConsOpt, error) 
 func generateConsOptsFromInt32Tensor(tx *TensorProto) ([]tensor.ConsOpt, error) {
 	switch {
 	case tx.RawData != nil:
-		buf := bytes.NewReader(tx.RawData)
-		element := make([]byte, 4)
-		var err error
-		var backing []int32
-		for {
-			var n int
-			n, err = buf.Read(element)
-			if err != nil || n != 4 {
-				break
-			}
-			uintElement := binary.LittleEndian.Uint32(element)
-			backing = append(backing, int32(uintElement))
+		if len(tx.RawData)%4 != 0 {
+			return nil, errors.Wrapf(ErrCorruptedData, "%v", nil)
 		}
-		if err != io.EOF {
-			return nil, errors.Wrapf(ErrCorruptedData, "%v", err)
+		numInts := len(tx.RawData) / 4
+		backing := make([]int32, numInts)
+		for i := 0; i < numInts; i++ {
+			offset := i * 4
+			uintElement := binary.LittleEndian.Uint32(tx.RawData[offset : offset+4])
+			backing[i] = int32(uintElement)
 		}
 		return []tensor.ConsOpt{tensor.WithBacking(backing)}, nil
 	case tx.Int32Data != nil:
@@ -195,21 +168,15 @@ func generateConsOptsFromInt32Tensor(tx *TensorProto) ([]tensor.ConsOpt, error) 
 func generateConsOptsFromInt16Tensor(tx *TensorProto) ([]tensor.ConsOpt, error) {
 	switch {
 	case tx.RawData != nil:
-		buf := bytes.NewReader(tx.RawData)
-		element := make([]byte, 2)
-		var err error
-		var backing []int16
-		for {
-			var n int
-			n, err = buf.Read(element)
-			if err != nil || n != 2 {
-				break
-			}
-			uintElement := binary.LittleEndian.Uint16(element)
-			backing = append(backing, int16(uintElement))
+		if len(tx.RawData)%2 != 0 {
+			return nil, errors.Wrapf(ErrCorruptedData, "%v", nil)
 		}
-		if err != io.EOF {
-			return nil, errors.Wrapf(ErrCorruptedData, "%v", err)
+		numInts := len(tx.RawData) / 2
+		backing := make([]int16, numInts)
+		for i := 0; i < numInts; i++ {
+			offset := i * 2
+			uintElement := binary.LittleEndian.Uint16(tx.RawData[offset : offset+2])
+			backing[i] = int16(uintElement)
 		}
 		return []tensor.ConsOpt{tensor.WithBacking(backing)}, nil
 	case tx.Int32Data != nil:
@@ -247,21 +214,14 @@ func generateConsOptsFromInt8Tensor(tx *TensorProto) ([]tensor.ConsOpt, error) {
 func generateConsOptsFromUint64Tensor(tx *TensorProto) ([]tensor.ConsOpt, error) {
 	switch {
 	case tx.RawData != nil:
-		buf := bytes.NewReader(tx.RawData)
-		element := make([]byte, 8)
-		var err error
-		var backing []uint64
-		for {
-			var n int
-			n, err = buf.Read(element)
-			if err != nil || n != 8 {
-				break
-			}
-			uintElement := binary.LittleEndian.Uint64(element)
-			backing = append(backing, uintElement)
+		if len(tx.RawData)%8 != 0 {
+			return nil, errors.Wrapf(ErrCorruptedData, "%v", nil)
 		}
-		if err != io.EOF {
-			return nil, errors.Wrapf(ErrCorruptedData, "%v", err)
+		numInts := len(tx.RawData) / 8
+		backing := make([]uint64, numInts)
+		for i := 0; i < numInts; i++ {
+			offset := i * 8
+			backing[i] = binary.LittleEndian.Uint64(tx.RawData[offset : offset+8])
 		}
 		return []tensor.ConsOpt{tensor.WithBacking(backing)}, nil
 	case tx.Uint64Data != nil:
@@ -274,21 +234,14 @@ func generateConsOptsFromUint64Tensor(tx *TensorProto) ([]tensor.ConsOpt, error)
 func generateConsOptsFromUint32Tensor(tx *TensorProto) ([]tensor.ConsOpt, error) {
 	switch {
 	case tx.RawData != nil:
-		buf := bytes.NewReader(tx.RawData)
-		element := make([]byte, 4)
-		var err error
-		var backing []uint32
-		for {
-			var n int
-			n, err = buf.Read(element)
-			if err != nil || n != 4 {
-				break
-			}
-			uintElement := binary.LittleEndian.Uint32(element)
-			backing = append(backing, uintElement)
+		if len(tx.RawData)%4 != 0 {
+			return nil, errors.Wrapf(ErrCorruptedData, "%v", nil)
 		}
-		if err != io.EOF {
-			return nil, errors.Wrapf(ErrCorruptedData, "%v", err)
+		numInts := len(tx.RawData) / 4
+		backing := make([]uint32, numInts)
+		for i := 0; i < numInts; i++ {
+			offset := i * 4
+			backing[i] = binary.LittleEndian.Uint32(tx.RawData[offset : offset+4])
 		}
 		return []tensor.ConsOpt{tensor.WithBacking(backing)}, nil
 	case tx.Uint64Data != nil:
@@ -306,21 +259,14 @@ func generateConsOptsFromUint32Tensor(tx *TensorProto) ([]tensor.ConsOpt, error)
 func generateConsOptsFromUint16Tensor(tx *TensorProto) ([]tensor.ConsOpt, error) {
 	switch {
 	case tx.RawData != nil:
-		buf := bytes.NewReader(tx.RawData)
-		element := make([]byte, 2)
-		var err error
-		var backing []uint16
-		for {
-			var n int
-			n, err = buf.Read(element)
-			if err != nil || n != 2 {
-				break
-			}
-			uintElement := binary.LittleEndian.Uint16(element)
-			backing = append(backing, uintElement)
+		if len(tx.RawData)%2 != 0 {
+			return nil, errors.Wrapf(ErrCorruptedData, "%v", nil)
 		}
-		if err != io.EOF {
-			return nil, errors.Wrapf(ErrCorruptedData, "%v", err)
+		numInts := len(tx.RawData) / 2
+		backing := make([]uint16, numInts)
+		for i := 0; i < numInts; i++ {
+			offset := i * 2
+			backing[i] = binary.LittleEndian.Uint16(tx.RawData[offset : offset+2])
 		}
 		return []tensor.ConsOpt{tensor.WithBacking(backing)}, nil
 	case tx.Int32Data != nil:

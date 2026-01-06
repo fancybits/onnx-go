@@ -16,11 +16,17 @@ func isIntegerTensor(t tensor.Tensor) bool {
 // flatToCoords converts a flat index to multi-dimensional coordinates
 func flatToCoords(idx int, shape tensor.Shape) []int {
 	coords := make([]int, len(shape))
+	flatToCoordsInPlace(idx, shape, coords)
+	return coords
+}
+
+// flatToCoordsInPlace converts a flat index to multi-dimensional coordinates
+// writing to the provided coords slice to avoid allocations
+func flatToCoordsInPlace(idx int, shape tensor.Shape, coords []int) {
 	for i := len(shape) - 1; i >= 0; i-- {
 		coords[i] = idx % shape[i]
 		idx /= shape[i]
 	}
-	return coords
 }
 
 // coordsToFlat converts multi-dimensional coordinates to a flat index
@@ -30,6 +36,15 @@ func coordsToFlat(coords []int, shape tensor.Shape) int {
 	for i := len(shape) - 1; i >= 0; i-- {
 		idx += coords[i] * stride
 		stride *= shape[i]
+	}
+	return idx
+}
+
+// coordsToFlatWithStrides converts multi-dimensional coordinates to a flat index using precomputed strides
+func coordsToFlatWithStrides(coords []int, strides []int) int {
+	idx := 0
+	for i, c := range coords {
+		idx += c * strides[i]
 	}
 	return idx
 }
