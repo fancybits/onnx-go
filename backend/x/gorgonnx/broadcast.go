@@ -43,6 +43,12 @@ func ggnReshapedBroadcast(a, b *gorgonia.Node) (*gorgonia.Node, *gorgonia.Node, 
 		reshapedA, err = gorgonia.Reshape(a, append([]int{1}, a.Shape()...))
 	case len(a.Shape()) == 4 && len(b.Shape()) == 3:
 		reshapedB, err = gorgonia.Reshape(b, append([]int{1}, b.Shape()...))
+	case len(a.Shape()) == 3 && len(b.Shape()) == 2:
+		// Reshape 2D to 3D by prepending a 1: (M, N) -> (1, M, N)
+		reshapedB, err = gorgonia.Reshape(b, append([]int{1}, b.Shape()...))
+	case len(a.Shape()) == 2 && len(b.Shape()) == 3:
+		// Reshape 2D to 3D by prepending a 1: (M, N) -> (1, M, N)
+		reshapedA, err = gorgonia.Reshape(a, append([]int{1}, a.Shape()...))
 	default:
 		return a, b, &onnx.ErrNotImplemented{
 			Message: fmt.Sprintf("broadcast not yet implemented for shape %v, %v", a.Shape(), b.Shape()),
