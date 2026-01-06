@@ -101,6 +101,29 @@ func (g *Graph) RunWithVM(vmType string) error {
 	return nil
 }
 
+// Reset clears the gorgonia execution graph, allowing the model to be
+// rebuilt with different input shapes (e.g., different batch sizes).
+// Call this before SetInput when changing batch dimensions.
+func (g *Graph) Reset() {
+	// Clear all gorgoniaNode references and intermediate tensor values
+	it := g.g.Nodes()
+	for it.Next() {
+		n := it.Node().(*Node)
+		n.gorgoniaNode = nil
+		// Clear tensor values for operation nodes (not inputs/constants)
+		// Input tensors will be set again via SetInput before next Run()
+		if n.operation != nil {
+			n.t = nil
+		}
+	}
+	// Clear the exprgraph - it will be rebuilt on next Run()
+	g.exprgraph = nil
+	if g.m != nil {
+		g.m.Close()
+		g.m = nil
+	}
+}
+
 // PopulateExprgraph creates the underlynig graph by walking the current graph
 func (g *Graph) PopulateExprgraph() error {
 	g.exprgraph = gorgonia.NewGraph()
