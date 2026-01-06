@@ -39,27 +39,69 @@ func doGather(data *tensor.Dense, indices []int64, indicesShape tensor.Shape, ax
 	outputShape := gatherOutputShape(data.Shape(), indicesShape, axis)
 	result := tensor.New(tensor.WithShape(outputShape...), tensor.Of(data.Dtype()))
 
+	// Use typed gather to avoid interface{} boxing allocations
+	switch src := data.Data().(type) {
+	case []float32:
+		doGatherTyped(src, result.Float32s(), data, result, indices, indicesShape, axis)
+	case []float64:
+		doGatherTyped(src, result.Float64s(), data, result, indices, indicesShape, axis)
+	case []int32:
+		doGatherTyped(src, result.Int32s(), data, result, indices, indicesShape, axis)
+	case []int64:
+		doGatherTyped(src, result.Int64s(), data, result, indices, indicesShape, axis)
+	default:
+		return doGatherGeneric(data, result, indices, indicesShape, axis)
+	}
+	return result, nil
+}
+
+// doGatherTyped performs gather with direct slice access to avoid boxing
+func doGatherTyped[T any](srcData, dstData []T, data, result *tensor.Dense, indices []int64, indicesShape tensor.Shape, axis int) {
 	srcShape := data.Shape()
 	dstShape := result.Shape()
-	numPreAxis := axis
+	srcStrides := data.Strides()
+	dstStrides := result.Strides()
 	numIndicesDims := len(indicesShape)
 
-	totalSize := dstShape.TotalSize()
-	for dstIdx := 0; dstIdx < totalSize; dstIdx++ {
-		dstCoords := flatToCoords(dstIdx, dstShape)
-		srcCoords := make([]int, len(srcShape))
+	dstCoords := make([]int, len(dstShape))
+	srcCoords := make([]int, len(srcShape))
 
-		copy(srcCoords[:numPreAxis], dstCoords[:numPreAxis])
+	for dstIdx := 0; dstIdx < dstShape.TotalSize(); dstIdx++ {
+		flatToCoordsInPlace(dstIdx, dstShape, dstCoords)
+		copy(srcCoords[:axis], dstCoords[:axis])
 
-		indicesCoords := dstCoords[numPreAxis : numPreAxis+numIndicesDims]
-		idxFlat := coordsToFlat(indicesCoords, indicesShape)
+		idxFlat := coordsToFlat(dstCoords[axis:axis+numIndicesDims], indicesShape)
 		srcIdx := int(indices[idxFlat])
 		if srcIdx < 0 {
 			srcIdx = srcShape[axis] + srcIdx
 		}
 		srcCoords[axis] = srcIdx
+		copy(srcCoords[axis+1:], dstCoords[axis+numIndicesDims:])
 
-		copy(srcCoords[axis+1:], dstCoords[numPreAxis+numIndicesDims:])
+		dstData[coordsToFlatWithStrides(dstCoords, dstStrides)] = srcData[coordsToFlatWithStrides(srcCoords, srcStrides)]
+	}
+}
+
+// doGatherGeneric is the fallback using interface{} (slower due to boxing)
+func doGatherGeneric(data, result *tensor.Dense, indices []int64, indicesShape tensor.Shape, axis int) (*tensor.Dense, error) {
+	srcShape := data.Shape()
+	dstShape := result.Shape()
+	numIndicesDims := len(indicesShape)
+
+	dstCoords := make([]int, len(dstShape))
+	srcCoords := make([]int, len(srcShape))
+
+	for dstIdx := 0; dstIdx < dstShape.TotalSize(); dstIdx++ {
+		flatToCoordsInPlace(dstIdx, dstShape, dstCoords)
+		copy(srcCoords[:axis], dstCoords[:axis])
+
+		idxFlat := coordsToFlat(dstCoords[axis:axis+numIndicesDims], indicesShape)
+		srcIdx := int(indices[idxFlat])
+		if srcIdx < 0 {
+			srcIdx = srcShape[axis] + srcIdx
+		}
+		srcCoords[axis] = srcIdx
+		copy(srcCoords[axis+1:], dstCoords[axis+numIndicesDims:])
 
 		val, err := data.At(srcCoords...)
 		if err != nil {
@@ -69,7 +111,6 @@ func doGather(data *tensor.Dense, indices []int64, indicesShape tensor.Shape, ax
 			return nil, err
 		}
 	}
-
 	return result, nil
 }
 
