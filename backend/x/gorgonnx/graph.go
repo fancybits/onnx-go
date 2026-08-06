@@ -5,7 +5,6 @@ import (
 
 	"github.com/owulveryck/onnx-go"
 	"gonum.org/v1/gonum/graph"
-	"gonum.org/v1/gonum/graph/simple"
 	"gorgonia.org/gorgonia"
 	"gorgonia.org/tensor"
 )
@@ -15,7 +14,7 @@ import (
 // It holds a gorgonia.ExprGraph that is populated on the first call to the
 // Run() method
 type Graph struct {
-	g         *simple.WeightedDirectedGraph
+	g         *weightedDirectedGraph
 	exprgraph *gorgonia.ExprGraph
 	m         gorgonia.VM
 	roots     []int64
@@ -85,14 +84,23 @@ func (g *Graph) RunWithVM(vmType string) error {
 	// Now sets the output tensor
 	for i := 0; i < len(g.roots); i++ {
 		root := g.Node(g.roots[i]).(*Node)
-		var ok bool
 		if root.gorgoniaNode == nil {
 			return errors.New("root node is nil")
 		}
-		root.t, ok = root.gorgoniaNode.Value().(tensor.Tensor)
-		if !ok {
-			return errors.New("root node is not a tensor")
+		v := root.gorgoniaNode.Value()
+		if t, ok := v.(tensor.Tensor); ok {
+			root.t = t
+			continue
 		}
+		// Some ops (e.g. gorgonia's builtin Lt/Gt on 0-d operands) legitimately
+		// return a boxed gorgonia.Scalar rather than a tensor.Tensor when the
+		// node's static type is scalar. Wrap it as a 0-d tensor so it can still
+		// be surfaced as a root output.
+		if s, ok := v.(gorgonia.Scalar); ok {
+			root.t = tensor.New(tensor.FromScalar(s.Data()))
+			continue
+		}
+		return errors.New("root node is not a tensor")
 	}
 	return nil
 }
@@ -107,9 +115,14 @@ func (g *Graph) Reset() {
 		n := it.Node().(*Node)
 		n.gorgoniaNode = nil
 		// Clear tensor values for operation nodes (not inputs/constants)
-		// Input tensors will be set again via SetInput before next Run()
+		// Input tensors will be set again via SetInput before next Run().
+		// Drop the provenance flag with the value it describes: the rebuild
+		// re-runs the operator, which decides afresh whether its result is a
+		// constant, and a flag left over from the previous build could vouch
+		// for a tensor this one never produced.
 		if n.operation != nil {
 			n.t = nil
+			n.constant = false
 		}
 	}
 	// Clear the exprgraph - it will be rebuilt on next Run()

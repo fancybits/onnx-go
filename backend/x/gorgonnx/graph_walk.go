@@ -32,6 +32,12 @@ func (g *Graph) populateExprgraph() error {
 	copy(nodes, g.groups)
 	for len(nodes) > 0 {
 		initialLen := len(nodes)
+		// Every errNotReady of the pass, kept so that a pass which makes no
+		// progress at all can report why instead of "infinite loop". Keeping
+		// only the last would name one stuck group and hide the others, which
+		// is the wrong end of the problem to look at when several are waiting
+		// on each other.
+		var deferred []error
 		for i := 0; i < len(nodes); i++ {
 			nilChild := false
 			for _, n := range nodes[i] {
@@ -50,11 +56,22 @@ func (g *Graph) populateExprgraph() error {
 			}
 			err := g.applyOperation(nodes[i]...)
 			if err != nil {
+				// The operator depends on something the explicit edges do not
+				// express — a value captured by a subgraph, which carries no
+				// edge to its producer — and that something is not built yet.
+				// Leave the group in place and retry it on the next pass.
+				if errors.Is(err, errNotReady) {
+					deferred = append(deferred, err)
+					continue
+				}
 				return err
 			}
 			nodes = append(nodes[:i], nodes[i+1:]...)
 		}
 		if len(nodes) == initialLen {
+			if len(deferred) > 0 {
+				return errors.Join(deferred...)
+			}
 			return errors.New("infinite loop")
 		}
 	}

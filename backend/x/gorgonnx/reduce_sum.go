@@ -5,7 +5,6 @@ import (
 
 	"github.com/owulveryck/onnx-go"
 	"gorgonia.org/gorgonia"
-	"gorgonia.org/tensor"
 )
 
 // https://github.com/onnx/onnx/blob/main/docs/Operators.md#ReduceSum
@@ -42,12 +41,14 @@ func (r *reduceSum) apply(g *Graph, ns ...*Node) error {
 
 	// Get axes - either from attribute or from second input tensor
 	axes := r.axes
-	if len(children) == 2 && children[1].gorgoniaNode != nil {
-		// New opset: axes comes from second input tensor
-		axesTensor := children[1].gorgoniaNode.Value()
+	if len(children) == 2 {
+		// New opset: axes comes from second input tensor. It selects which
+		// dimensions the op reduces and so determines the output shape: it has
+		// to be read at build time whatever its provenance.
+		axesTensor := staticTensorFromNode(children[1])
 		if axesTensor != nil {
 			axes = nil // Clear attribute axes
-			axesInt64 := tensorToInt64Slice(axesTensor.(*tensor.Dense))
+			axesInt64 := tensorToInt64Slice(axesTensor)
 			axes = make([]int, len(axesInt64))
 			for i, v := range axesInt64 {
 				axes[i] = int(v)

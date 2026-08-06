@@ -211,17 +211,10 @@ func newSlice() operator {
 
 func (s *slice) apply(g *Graph, ns ...*Node) error {
 	n := ns[0]
-	children := getOrderedChildren(g.g, n)
-
-	// Slice has 3-5 inputs: data, starts, ends, [axes], [steps]
-	// Build a map from weight to child to handle edge deduplication
-	childByWeight := make(map[int]*Node)
-	for _, child := range children {
-		edge := g.g.WeightedEdge(n.ID(), child.ID())
-		if edge != nil {
-			childByWeight[int(edge.Weight())] = child
-		}
-	}
+	// Slice has 3-5 inputs: data, starts, ends, [axes], [steps]. The optional
+	// ones may be omitted, so key the children on their input ordinal rather
+	// than on their position.
+	childByWeight := getChildrenByInputIndex(g.g, n)
 
 	// Get data (input 0)
 	dataNode := childByWeight[0]
@@ -238,13 +231,11 @@ func (s *slice) apply(g *Graph, ns ...*Node) error {
 	axesNode := childByWeight[3]
 	stepsNode := childByWeight[4]
 
-	// Handle edge deduplication: if starts missing but axes exists, they may be same constant
-	if startsNode == nil && axesNode != nil {
-		startsNode = axesNode
-	}
-
-	startsTensor := getTensorFromNode(startsNode)
-	endsTensor := getTensorFromNode(endsNode)
+	// starts/ends/axes/steps are baked into the slice the graph performs — they
+	// determine the output shape — so they have to be read at build time
+	// whatever their provenance. See staticTensorFromNode.
+	startsTensor := staticTensorFromNode(startsNode)
+	endsTensor := staticTensorFromNode(endsNode)
 
 	if startsTensor == nil {
 		return fmt.Errorf("slice: starts input is missing or not a constant tensor")
@@ -256,10 +247,17 @@ func (s *slice) apply(g *Graph, ns ...*Node) error {
 	starts := tensorToInt64Slice(startsTensor)
 	ends := tensorToInt64Slice(endsTensor)
 
+	// A parameter read above may have come from a graph input, so anything
+	// derived from it is not a compile-time constant. Track that, so the fold
+	// below cannot claim provenance its inputs do not have. Omitted optional
+	// inputs contribute nothing: their defaults are constants.
+	paramsConst := isConstNode(startsNode) && isConstNode(endsNode)
+
 	// Optional axes (defaults to 0, 1, 2, ...)
 	var axes []int64
-	if axesTensor := getTensorFromNode(axesNode); axesTensor != nil {
+	if axesTensor := staticTensorFromNode(axesNode); axesTensor != nil {
 		axes = tensorToInt64Slice(axesTensor)
+		paramsConst = paramsConst && isConstNode(axesNode)
 	} else {
 		axesLen := len(starts)
 		if axesLen > numDims {
@@ -275,8 +273,9 @@ func (s *slice) apply(g *Graph, ns ...*Node) error {
 
 	// Optional steps (defaults to 1)
 	var steps []int64
-	if stepsTensor := getTensorFromNode(stepsNode); stepsTensor != nil {
+	if stepsTensor := staticTensorFromNode(stepsNode); stepsTensor != nil {
 		steps = tensorToInt64Slice(stepsTensor)
+		paramsConst = paramsConst && isConstNode(stepsNode)
 	} else {
 		steps = make([]int64, len(starts))
 		for i := range steps {
@@ -311,8 +310,10 @@ func (s *slice) apply(g *Graph, ns ...*Node) error {
 		}
 	}
 
-	// If data is a constant, perform slice immediately
-	dataTensor := getTensorFromNode(dataNode)
+	// If data is a genuine compile-time constant, perform the slice immediately.
+	// Anything else goes down the symbolic path, which computes the same result
+	// at run time from whatever is bound then.
+	dataTensor := constTensorFromNode(dataNode)
 	if dataTensor != nil {
 		dataD, ok := dataTensor.(*tensor.Dense)
 		if !ok {
@@ -322,7 +323,10 @@ func (s *slice) apply(g *Graph, ns ...*Node) error {
 		if err != nil {
 			return fmt.Errorf("slice constant: %w", err)
 		}
+		// The data was a proven constant, but a slice parameter may not have
+		// been: the result is only a constant when every input to it was.
 		n.t = result
+		n.constant = paramsConst
 		n.gorgoniaNode = gorgonia.NodeFromAny(g.exprgraph, result, gorgonia.WithName(getUniqNodeName("slice_const")))
 		return nil
 	}

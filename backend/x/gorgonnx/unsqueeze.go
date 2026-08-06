@@ -36,9 +36,11 @@ func (a *unsqueeze) apply(g *Graph, ns ...*Node) error {
 	tensor := children[0].gorgoniaNode
 
 	// Get axes - either from second input (new opset) or attribute (old opset)
+	// axes determines the output shape, so it has to be read at build time
+	// whatever its provenance
 	var axes []int64
 	if len(children) == 2 {
-		if axesTensor := getTensorFromNode(children[1]); axesTensor != nil {
+		if axesTensor := staticTensorFromNode(children[1]); axesTensor != nil {
 			axes = tensorToInt64Slice(axesTensor)
 		}
 	}

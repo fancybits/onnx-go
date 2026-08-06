@@ -6,22 +6,36 @@ import (
 	"gonum.org/v1/gonum/graph"
 )
 
-// getOrderedChildren returns the children nodes of the current node
-func getOrderedChildren(g graph.WeightedDirected, n *Node) []*Node {
-	// Get all the edges that reach the node n
-	children := g.From(n.ID())
-	// Now get the edges
-	edges := make([]graph.WeightedEdge, children.Len())
-	for i := 0; children.Next(); i++ {
-		edges[i] = g.WeightedEdge(n.ID(), children.Node().ID())
-	}
-	sort.Sort(byWeight(edges))
+// getOrderedChildren returns the children of the node n — its ONNX inputs —
+// sorted by input ordinal. A child appears once per input slot it is wired to,
+// so a node whose inputs name the same tensor twice (Mul(x, x)) yields that
+// child twice.
+func getOrderedChildren(g *weightedDirectedGraph, n *Node) []*Node {
+	edges := g.outWeightedEdges(n.ID())
 	nodes := make([]*Node, len(edges))
-	for i := 0; i < len(edges); i++ {
-		nodes[i] = edges[i].To().(*Node)
+	for i, e := range edges {
+		nodes[i] = e.To().(*Node)
 	}
 
 	return nodes
+}
+
+// getChildrenByInputIndex returns the children of the node n keyed by the ONNX
+// input ordinal they are wired to. Use it instead of getOrderedChildren for
+// operators with optional inputs, where an omitted input leaves a hole in the
+// ordinals and positions in the ordered slice no longer match input numbers.
+func getChildrenByInputIndex(g *weightedDirectedGraph, n *Node) map[int]*Node {
+	edges := g.outWeightedEdges(n.ID())
+	children := make(map[int]*Node, len(edges))
+	for _, e := range edges {
+		children[int(e.Weight())] = e.To().(*Node)
+	}
+
+	return children
+}
+
+func sortByWeight(edges []graph.WeightedEdge) {
+	sort.Stable(byWeight(edges))
 }
 
 type byWeight []graph.WeightedEdge

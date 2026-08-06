@@ -163,7 +163,9 @@ func (r *reverseSequence) apply(g *Graph, ns ...*Node) error {
 	input := children[0].gorgoniaNode
 	seqLensNode := children[1]
 
-	seqLensTensor := getTensorFromNode(seqLensNode)
+	// sequence_lens is baked into the op, so it has to be read at build time
+	// whatever its provenance
+	seqLensTensor := staticTensorFromNode(seqLensNode)
 	if seqLensTensor == nil {
 		return fmt.Errorf("reverseSequence: sequence_lens must be a constant tensor")
 	}

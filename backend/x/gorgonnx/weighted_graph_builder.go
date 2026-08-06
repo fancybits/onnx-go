@@ -1,16 +1,13 @@
 package gorgonnx
 
 import (
-	"math"
-
 	"gonum.org/v1/gonum/graph"
-	"gonum.org/v1/gonum/graph/simple"
 )
 
 // NewGraph ...
 func NewGraph() *Graph {
 	return &Graph{
-		g:      simple.NewWeightedDirectedGraph(math.MaxFloat64, -1),
+		g:      newWeightedDirectedGraph(),
 		groups: make([][]*Node, 0),
 	}
 }

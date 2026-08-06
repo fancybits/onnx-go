@@ -28,12 +28,12 @@ func (a *squeeze) apply(g *Graph, ns ...*Node) error {
 	// ONNX opset 13+ has axes as a second input rather than attribute
 	if len(children) == 2 {
 		// Get axes from second input
+		// axes determines the output shape, so it has to be read at build time
+		// whatever its provenance
 		axesNode := children[1]
 		var axesTensor interface{}
-		if axesNode.gorgoniaNode != nil && axesNode.gorgoniaNode.Value() != nil {
-			axesTensor = axesNode.gorgoniaNode.Value().Data()
-		} else if axesNode.t != nil {
-			axesTensor = axesNode.t.Data()
+		if t := staticTensorFromNode(axesNode); t != nil {
+			axesTensor = t.Data()
 		}
 		if axesTensor != nil {
 			switch axes := axesTensor.(type) {

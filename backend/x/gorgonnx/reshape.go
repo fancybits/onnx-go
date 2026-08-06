@@ -74,17 +74,16 @@ func (a *reshape) apply(g *Graph, ns ...*Node) error {
 		return err
 	}
 
-	// Get the target shape from child node - try gorgoniaNode.Value() first, fallback to t
-	var shapeData interface{}
-	if children[1].gorgoniaNode != nil && children[1].gorgoniaNode.Value() != nil {
-		shapeData = children[1].gorgoniaNode.Value().Data()
-	} else if children[1].t != nil {
-		shapeData = children[1].t.Data()
-	} else {
+	// The target shape is baked into the gorgonia Reshape below, so it has to be
+	// read at build time whatever its provenance. See staticTensorFromNode:
+	// reading a graph input here specialises the graph to that shape until the
+	// caller Resets.
+	shapeTensor := staticTensorFromNode(children[1])
+	if shapeTensor == nil {
 		return fmt.Errorf("reshape: shape input has no value")
 	}
 
-	err = a.inferShape(shapeData, children[0].gorgoniaNode.Shape())
+	err = a.inferShape(shapeTensor.Data(), children[0].gorgoniaNode.Shape())
 	if err != nil {
 		return err
 	}

@@ -9,34 +9,6 @@ import (
 	"gorgonia.org/tensor"
 )
 
-// getBinaryOpChildren gets children for binary operations, handling the case
-// where both inputs point to the same node (e.g., x * x for squaring).
-// The graph library only keeps one edge when both inputs are the same,
-// so we need to check edge weights and duplicate if necessary.
-func getBinaryOpChildren(g *Graph, n *Node) ([]*Node, error) {
-	children := getOrderedChildren(g.g, n)
-
-	if len(children) == 2 {
-		return children, nil
-	}
-
-	if len(children) == 1 {
-		// Check if this is a case where both inputs point to the same node
-		// This happens when the operation is like x * x (squaring)
-		edge := g.g.WeightedEdge(n.ID(), children[0].ID())
-		if edge != nil {
-			// If the edge weight is 0, it means input 0 points to this child
-			// and input 1 was supposed to point to the same node but was overwritten
-			// If the edge weight is 1, it means input 1 points to this child
-			// and input 0 was supposed to point to the same node but was overwritten
-			// Either way, both inputs should be the same node
-			return []*Node{children[0], children[0]}, nil
-		}
-	}
-
-	return children, nil
-}
-
 type hadamardProd struct{}
 
 func init() {
@@ -51,11 +23,8 @@ func (a *hadamardProd) apply(g *Graph, n ...*Node) error {
 	if len(n) != 1 {
 		return errors.New("wrong number of input nodes")
 	}
-	children, err := getBinaryOpChildren(g, n[0])
-	if err != nil {
-		return err
-	}
-	err = checkCondition(children, 2)
+	children := getOrderedChildren(g.g, n[0])
+	err := checkCondition(children, 2)
 	if err != nil {
 		return err
 	}
@@ -91,11 +60,8 @@ func (a *hadamardDiv) apply(g *Graph, n ...*Node) error {
 	if len(n) != 1 {
 		return errors.New("wrong number of input nodes")
 	}
-	children, err := getBinaryOpChildren(g, n[0])
-	if err != nil {
-		return err
-	}
-	err = checkCondition(children, 2)
+	children := getOrderedChildren(g.g, n[0])
+	err := checkCondition(children, 2)
 	if err != nil {
 		return err
 	}
@@ -131,23 +97,23 @@ func (a *sub) apply(g *Graph, n ...*Node) error {
 	if len(n) != 1 {
 		return errors.New("wrong number of input nodes")
 	}
-	children, err := getBinaryOpChildren(g, n[0])
-	if err != nil {
-		return err
-	}
-	err = checkCondition(children, 2)
+	children := getOrderedChildren(g.g, n[0])
+	err := checkCondition(children, 2)
 	if err != nil {
 		return err
 	}
 
-	// Constant folding for integer types only (shape computations)
-	// Float types are typically runtime data that shouldn't be folded
-	xTensor := getTensorFromNode(children[0])
-	yTensor := getTensorFromNode(children[1])
+	// Constant folding for integer types only (shape computations).
+	// Both operands must be compile-time constants: an integer graph input has
+	// a tensor bound to it as well, and folding that would freeze one run's
+	// data into the graph.
+	xTensor := constTensorFromNode(children[0])
+	yTensor := constTensorFromNode(children[1])
 	if xTensor != nil && yTensor != nil && isIntegerTensor(xTensor) && isIntegerTensor(yTensor) {
 		result, err := tensor.Sub(xTensor, yTensor)
 		if err == nil {
 			n[0].t = result
+			n[0].constant = true
 			n[0].gorgoniaNode = gorgonia.NodeFromAny(g.exprgraph, result, gorgonia.WithName(getUniqNodeName("sub_const")))
 			return nil
 		}
@@ -184,23 +150,23 @@ func (a *add) apply(g *Graph, n ...*Node) error {
 	if len(n) != 1 {
 		return errors.New("wrong number of input nodes")
 	}
-	children, err := getBinaryOpChildren(g, n[0])
-	if err != nil {
-		return err
-	}
-	err = checkCondition(children, 2)
+	children := getOrderedChildren(g.g, n[0])
+	err := checkCondition(children, 2)
 	if err != nil {
 		return err
 	}
 
-	// Constant folding for integer types only (shape computations)
-	// Float types are typically runtime data that shouldn't be folded
-	xTensor := getTensorFromNode(children[0])
-	yTensor := getTensorFromNode(children[1])
+	// Constant folding for integer types only (shape computations).
+	// Both operands must be compile-time constants: an integer graph input has
+	// a tensor bound to it as well, and folding that would freeze one run's
+	// data into the graph.
+	xTensor := constTensorFromNode(children[0])
+	yTensor := constTensorFromNode(children[1])
 	if xTensor != nil && yTensor != nil && isIntegerTensor(xTensor) && isIntegerTensor(yTensor) {
 		result, err := tensor.Add(xTensor, yTensor)
 		if err == nil {
 			n[0].t = result
+			n[0].constant = true
 			n[0].gorgoniaNode = gorgonia.NodeFromAny(g.exprgraph, result, gorgonia.WithName(getUniqNodeName("add_const")))
 			return nil
 		}
@@ -561,14 +527,17 @@ func (a *neg) apply(g *Graph, n ...*Node) error {
 		return fmt.Errorf("neg: child gorgoniaNode is nil, child operation=%s", childOp)
 	}
 
-	// Constant folding: if input is a constant tensor, negate it at graph construction time
-	// This is needed because operators like ConstantOfShape need values available at construction time
-	if t := getTensorFromNode(children[0]); t != nil {
+	// Constant folding: if input is a compile-time constant, negate it at graph
+	// construction time. This is needed because operators like ConstantOfShape
+	// need values available at construction time. A run-time value is negated
+	// by the symbolic path below instead.
+	if t := constTensorFromNode(children[0]); t != nil {
 		negated, negErr := tensor.Neg(t)
 		if negErr != nil {
 			return fmt.Errorf("neg: constant folding failed: %w", negErr)
 		}
 		n[0].t = negated
+		n[0].constant = true
 		n[0].gorgoniaNode = gorgonia.NodeFromAny(g.exprgraph, negated, gorgonia.WithName(getUniqNodeName("neg")))
 		return nil
 	}
