@@ -47,17 +47,21 @@ func (m *Model) GetNodeByName(name string) (graph.Node, bool) {
 }
 
 func (m *Model) processValue(io *ir.ValueInfoProto) (graph.Node, error) {
+	return processValueInto(m.backend, m.dbByName, io)
+}
+
+// processValueInto is processValue generalized over any backend + name db.
+func processValueInto(dst Backend, db map[string]graph.Node, io *ir.ValueInfoProto) (graph.Node, error) {
 	if io == nil {
 		return nil, errors.New("cannot process nil value")
 	}
 	var opts []tensor.ConsOpt
-	dst := m.backend
 	n := dst.NewNode()
 	if _, ok := n.(Namer); ok {
 		n.(Namer).SetName(io.Name)
 	}
 	dst.AddNode(n)
-	m.dbByName[io.Name] = n
+	db[io.Name] = n
 	if io.Type == nil {
 		return n, nil
 	}
@@ -161,21 +165,32 @@ func (m *Model) applyModelProtoGraph(model *ir.ModelProto) error {
 
 // applyModelProtoGraphTensors apply model proto graph tensors to model
 func (m *Model) applyModelProtoGraphTensors(model *ir.ModelProto) error {
-	for _, tensorProto := range model.Graph.GetInitializer() {
-		name := tensorProto.GetName()
-		if name == "" {
-			return errors.New("initializer should have a name")
-		}
-		n, ok := m.dbByName[name]
-		if !ok {
-			n = insertNode(m, n, name)
-		}
+	return applyGraphTensors(m.backend, m.dbByName, model.Graph, func(n graph.Node) {
 		// Remove it from the input
 		// find the ID
 		for i := 0; i < len(m.Input); i++ {
 			if m.Input[i] == n.ID() {
 				m.Input = append(m.Input[:i], m.Input[i+1:]...)
 			}
+		}
+	})
+}
+
+// applyGraphTensors sets initializer tensors into db-registered nodes,
+// creating them if absent. onInit (may be nil) is called per initializer node —
+// Model uses it to prune initializers from its Input list.
+func applyGraphTensors(dst Backend, db map[string]graph.Node, g *ir.GraphProto, onInit func(graph.Node)) error {
+	for _, tensorProto := range g.GetInitializer() {
+		name := tensorProto.GetName()
+		if name == "" {
+			return errors.New("initializer should have a name")
+		}
+		n, ok := db[name]
+		if !ok {
+			n = insertNode(dst, db, name)
+		}
+		if onInit != nil {
+			onInit(n)
 		}
 		if _, ok := n.(DataCarrier); !ok {
 			continue
@@ -188,30 +203,41 @@ func (m *Model) applyModelProtoGraphTensors(model *ir.ModelProto) error {
 		if err != nil {
 			return err
 		}
+		// An initializer is the only tensor in the proto that is a genuine
+		// compile-time constant; record that provenance for backends that
+		// fold constants.
+		if cm, ok := n.(ConstMarker); ok {
+			cm.MarkConst()
+		}
 	}
 	return nil
 }
 
 // applyModelProtoGraphNodeOperations apply model proto graph node operations to model
 func (m *Model) applyModelProtoGraphNodeOperations(model *ir.ModelProto) error {
-	dst := m.backend
-	for _, node := range model.Graph.Node {
+	return applyGraphNodeOperations(m.backend, m.dbByName, model.Graph)
+}
+
+// applyGraphNodeOperations wires node inputs/outputs and calls dst.ApplyOperation,
+// exactly as Model.applyModelProtoGraphNodeOperations does today.
+func applyGraphNodeOperations(dst Backend, db map[string]graph.Node, g *ir.GraphProto) error {
+	for _, node := range g.Node {
 		outputNodes := make([]graph.Node, len(node.Output))
 		for i, output := range node.Output {
 			var ok bool
 			var no graph.Node
-			if no, ok = m.dbByName[output]; !ok {
+			if no, ok = db[output]; !ok {
 				no = dst.NewNode()
 				if _, ok := no.(Namer); ok {
 					no.(Namer).SetName(output)
 				}
 				dst.AddNode(no)
-				m.dbByName[output] = no
+				db[output] = no
 			}
 			// If node is input-less, fake an input by creating an empty value
 			if len(node.Input) == 0 {
 				inputName := node.Name + "/input"
-				_, err := m.processValue(&ir.ValueInfoProto{
+				_, err := processValueInto(dst, db, &ir.ValueInfoProto{
 					Name: inputName,
 				})
 				if err != nil {
@@ -223,13 +249,13 @@ func (m *Model) applyModelProtoGraphNodeOperations(model *ir.ModelProto) error {
 			for i, input := range node.Input {
 				var ni graph.Node
 				var ok bool
-				if ni, ok = m.dbByName[input]; !ok {
+				if ni, ok = db[input]; !ok {
 					ni = dst.NewNode()
 					if _, ok := ni.(Namer); ok {
 						ni.(Namer).SetName(input)
 					}
 					dst.AddNode(ni)
-					m.dbByName[input] = ni
+					db[input] = ni
 				}
 				e := dst.NewWeightedEdge(no, ni, float64(i))
 				dst.SetWeightedEdge(e)
@@ -253,13 +279,12 @@ func (m *Model) applyModelProtoGraphNodeOperations(model *ir.ModelProto) error {
 	return nil
 }
 
-func insertNode(m *Model, n graph.Node, name string) graph.Node {
-	dst := m.backend
-	n = dst.NewNode()
+func insertNode(dst Backend, db map[string]graph.Node, name string) graph.Node {
+	n := dst.NewNode()
 	if n, ok := n.(Namer); ok {
 		n.SetName(name)
 	}
 	dst.AddNode(n)
-	m.dbByName[name] = n
+	db[name] = n
 	return n
 }

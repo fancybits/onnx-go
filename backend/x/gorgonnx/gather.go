@@ -208,8 +208,12 @@ func (g *gather) apply(gg *Graph, ns ...*Node) error {
 	indicesNode := children[1]
 	axis := g.axis
 
-	dataTensor := getTensorFromNode(dataNode)
-	indicesTensor := getTensorFromNode(indicesNode)
+	// Only compile-time constant provenance admits a build-time decision here:
+	// both the fold below and the "bake the indices into the op" path turn a
+	// tensor into part of the graph, which is wrong for anything a later run
+	// can change.
+	dataTensor := constTensorFromNode(dataNode)
+	indicesTensor := constTensorFromNode(indicesNode)
 
 	// If both data and indices are constants, perform gather immediately
 	if dataTensor != nil && indicesTensor != nil {
@@ -223,6 +227,10 @@ func (g *gather) apply(gg *Graph, ns ...*Node) error {
 			return fmt.Errorf("gather constant: %w", err)
 		}
 
+		// Record the fold as a value with provenance, so that a downstream
+		// build-time consumer can tell it apart from a run-time tensor.
+		n.t = result
+		n.constant = true
 		n.gorgoniaNode = gorgonia.NodeFromAny(gg.exprgraph, result, gorgonia.WithName(getUniqNodeName("gather_const")))
 		return nil
 	}

@@ -29,11 +29,7 @@ func toOperationAttribute(attr *ir.AttributeProto) (interface{}, error) {
 	case ir.AttributeProto_TENSOR:
 		return attr.GetT().Tensor()
 	case ir.AttributeProto_GRAPH:
-		return nil, &ErrNotImplemented{
-			AttributeName:  attr.GetName(),
-			AttributeValue: attr,
-			Message:        "ir.AttributeProto_GRAPH not handled yet",
-		}
+		return &Subgraph{g: attr.GetG()}, nil
 	case ir.AttributeProto_FLOATS:
 		return attr.GetFloats(), nil
 	case ir.AttributeProto_INTS:

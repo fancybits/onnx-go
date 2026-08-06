@@ -29,6 +29,9 @@ func (a *constant) apply(g *Graph, ns ...*Node) error {
 	// Set both gorgoniaNode and t for immediate access in shape computations
 	n.gorgoniaNode = gorgonia.NodeFromAny(g.exprgraph, a.t, gorgonia.WithName(getUniqNodeName("constant")))
 	n.t = a.t
+	// The value comes from the node's own attribute: a compile-time constant
+	// on the same footing as an initializer.
+	n.MarkConst()
 	return nil
 }
 

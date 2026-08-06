@@ -29,8 +29,13 @@ func (*shape) apply(graph *Graph, nodes ...*Node) error {
 		s[i] = int64(v)
 	}
 	t := tensor.New(tensor.WithShape(len(s)), tensor.WithBacking(s))
-	// Set both t (for immediate access in shape computations) and gorgoniaNode (for graph execution)
+	// Set both t (for immediate access in shape computations) and gorgoniaNode (for graph execution).
+	// The result is unconditionally a compile-time constant: it is read off the
+	// exprgraph's static shapes, which are fixed for the lifetime of a build.
+	// Feeding a differently-shaped input requires Reset() and a rebuild, which
+	// re-runs this operator.
 	nodes[0].t = t
+	nodes[0].constant = true
 	nodes[0].gorgoniaNode = gorgonia.NodeFromAny(graph.exprgraph, t, gorgonia.WithName(getUniqNodeName("shape")))
 
 	return nil

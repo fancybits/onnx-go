@@ -149,8 +149,9 @@ func (t *tile) apply(g *Graph, ns ...*Node) error {
 	input := children[0].gorgoniaNode
 	repeatsNode := children[1]
 
-	// Get repeats from the tensor (check both t and gorgoniaNode.Value())
-	repeatsTensor := getTensorFromNode(repeatsNode)
+	// repeats is baked into the op and determines the output shape, so it has to
+	// be read at build time whatever its provenance
+	repeatsTensor := staticTensorFromNode(repeatsNode)
 	if repeatsTensor == nil {
 		return fmt.Errorf("tile: repeats must be a constant tensor")
 	}

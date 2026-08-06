@@ -48,50 +48,54 @@ func (n *notOp) Do(inputs ...gorgonia.Value) (gorgonia.Value, error) {
 	// where 0 = false (becomes true) and non-zero = true (becomes false)
 	switch t.Dtype() {
 	case tensor.Bool:
-		data := t.Data().([]bool)
-		result := make([]bool, len(data))
-		for i, v := range data {
-			result[i] = !v
-		}
-		return tensor.New(tensor.WithShape(t.Shape().Clone()...), tensor.WithBacking(result)), nil
+		return notResult(t, func(v bool) bool { return !v })
 	case tensor.Int8:
-		data := t.Data().([]int8)
-		result := make([]bool, len(data))
-		for i, v := range data {
-			result[i] = v == 0
-		}
-		return tensor.New(tensor.WithShape(t.Shape().Clone()...), tensor.WithBacking(result)), nil
+		return notResult(t, func(v int8) bool { return v == 0 })
 	case tensor.Int32:
-		data := t.Data().([]int32)
-		result := make([]bool, len(data))
-		for i, v := range data {
-			result[i] = v == 0
-		}
-		return tensor.New(tensor.WithShape(t.Shape().Clone()...), tensor.WithBacking(result)), nil
+		return notResult(t, func(v int32) bool { return v == 0 })
 	case tensor.Int64:
-		data := t.Data().([]int64)
-		result := make([]bool, len(data))
-		for i, v := range data {
-			result[i] = v == 0
-		}
-		return tensor.New(tensor.WithShape(t.Shape().Clone()...), tensor.WithBacking(result)), nil
+		return notResult(t, func(v int64) bool { return v == 0 })
 	case tensor.Float32:
-		data := t.Data().([]float32)
-		result := make([]bool, len(data))
-		for i, v := range data {
-			result[i] = v == 0
-		}
-		return tensor.New(tensor.WithShape(t.Shape().Clone()...), tensor.WithBacking(result)), nil
+		return notResult(t, func(v float32) bool { return v == 0 })
 	case tensor.Float64:
-		data := t.Data().([]float64)
-		result := make([]bool, len(data))
-		for i, v := range data {
-			result[i] = v == 0
-		}
-		return tensor.New(tensor.WithShape(t.Shape().Clone()...), tensor.WithBacking(result)), nil
+		return notResult(t, func(v float64) bool { return v == 0 })
 	default:
 		return nil, fmt.Errorf("not: unsupported dtype %v", t.Dtype())
 	}
+}
+
+// numericData extracts the T-typed backing of a dense tensor, handling
+// both 0-d scalar tensors (Data() returns a bare T) and n-d tensors
+// (Data() returns a []T) - mirroring andBoolData in and.go for numeric
+// types.
+func numericData[T any](t *tensor.Dense) ([]T, bool, error) {
+	switch d := t.Data().(type) {
+	case T:
+		return []T{d}, true, nil
+	case []T:
+		return d, false, nil
+	default:
+		return nil, false, fmt.Errorf("expected %T data, got %T", *new(T), d)
+	}
+}
+
+// notResult extracts T-typed data from t - handling both 0-d scalar tensors
+// (Data() returns a bare T) and n-d tensors (Data() returns a []T), via
+// numericData above - applies isFalsy elementwise, and preserves a
+// 0-d output shape when the input was a scalar (mirroring andOp).
+func notResult[T any](t *tensor.Dense, isFalsy func(T) bool) (gorgonia.Value, error) {
+	data, isScalar, err := numericData[T](t)
+	if err != nil {
+		return nil, fmt.Errorf("not: %v", err)
+	}
+	result := make([]bool, len(data))
+	for i, v := range data {
+		result[i] = isFalsy(v)
+	}
+	if isScalar {
+		return tensor.New(tensor.FromScalar(result[0])), nil
+	}
+	return tensor.New(tensor.WithShape(t.Shape().Clone()...), tensor.WithBacking(result)), nil
 }
 
 func (n *notOp) ReturnsPtr() bool     { return false }

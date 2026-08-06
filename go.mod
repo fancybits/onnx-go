@@ -1,6 +1,6 @@
 module github.com/owulveryck/onnx-go
 
-go 1.19
+go 1.20
 
 require (
 	github.com/chewxy/hm v1.0.0
@@ -46,4 +46,4 @@ require (
 	gorgonia.org/vecf64 v0.9.0 // indirect
 )
 
-replace gorgonia.org/gorgonia => github.com/fancybits/gorgonia v0.0.0-20260106072031-b20a75ccd6e3
+replace gorgonia.org/gorgonia => github.com/fancybits/gorgonia v0.0.0-20260805234851-3b92f977ffeb

@@ -42,8 +42,11 @@ func (s *sizeOp) apply(g *Graph, ns ...*Node) error {
 	// ONNX Size returns a tensor with shape (1,) containing int64
 	result := tensor.New(tensor.WithShape(1), tensor.WithBacking([]int64{totalSize}))
 
-	// Set both t (for immediate access in shape computations) and gorgoniaNode (for graph execution)
+	// Set both t (for immediate access in shape computations) and gorgoniaNode (for graph execution).
+	// Like Shape, the result is unconditionally a compile-time constant: it is
+	// derived from the input's static shape, which is fixed per graph build.
 	n.t = result
+	n.constant = true
 	n.gorgoniaNode = gorgonia.NodeFromAny(g.exprgraph, result, gorgonia.WithName(getUniqNodeName("size")))
 	return nil
 }

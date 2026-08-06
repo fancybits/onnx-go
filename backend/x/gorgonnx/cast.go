@@ -174,19 +174,31 @@ func (c *cast) apply(g *Graph, ns ...*Node) error {
 
 	input := children[0].gorgoniaNode
 
-	// If the input type already matches, pass through
+	// If the input type already matches, pass through. Like Identity, this
+	// aliases the input exactly, so it carries the input's value and provenance
+	// with it — dropping them would sever a constant chain that merely happens
+	// to cast a value to the type it already has.
 	if input.Dtype() == c.to {
 		n.gorgoniaNode = input
+		n.t = children[0].t
+		n.constant = children[0].constant
 		return nil
 	}
 
-	// If input is a constant, perform cast immediately and create a new constant
-	// This is important for shape computations that need values at graph construction time
-	if input.Value() != nil {
+	// If the input is a genuine compile-time constant, perform the cast
+	// immediately and create a new constant. This is important for shape
+	// computations that need values at graph construction time. A graph input
+	// also has a value bound to it, but casting that would bake one run's data
+	// into the graph, so it goes down the symbolic path below instead.
+	if inputT := constTensorFromNode(children[0]); inputT != nil {
 		op := &castOp{to: c.to}
-		result, err := op.Do(input.Value())
+		result, err := op.Do(inputT)
 		if err != nil {
 			return fmt.Errorf("cast constant: %w", err)
+		}
+		if t, ok := result.(tensor.Tensor); ok {
+			n.t = t
+			n.constant = true
 		}
 		n.gorgoniaNode = gorgonia.NodeFromAny(g.exprgraph, result, gorgonia.WithName(getUniqNodeName("cast_const")))
 		return nil

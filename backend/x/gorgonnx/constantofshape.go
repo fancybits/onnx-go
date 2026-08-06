@@ -31,7 +31,9 @@ func (c *constantOfShape) apply(g *Graph, ns ...*Node) error {
 
 	// Get shape from input tensor
 	shapeNode := children[0]
-	shapeTensor := getTensorFromNode(shapeNode)
+	// The shape determines the output shape, so it has to be read at build time
+	// whatever its provenance.
+	shapeTensor := staticTensorFromNode(shapeNode)
 	if shapeTensor == nil {
 		return fmt.Errorf("constantofshape: shape input must be a constant tensor")
 	}
@@ -100,6 +102,10 @@ func (c *constantOfShape) apply(g *Graph, ns ...*Node) error {
 		}
 	}
 
+	// The output depends only on the value attribute, which is a constant, and
+	// on the shape input, which may have come from a graph input.
+	n.t = result
+	n.constant = isConstNode(shapeNode)
 	n.gorgoniaNode = gorgonia.NodeFromAny(g.exprgraph, result, gorgonia.WithName(getUniqNodeName("constantofshape")))
 	return nil
 }
