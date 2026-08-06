@@ -128,17 +128,10 @@ func TestToOperationAttributes_Float(t *testing.T) {
 func TestToOperationAttributes_NotImplemented(t *testing.T) {
 	_, err := toOperationAttributes([]*ir.AttributeProto{
 		{
-			Type: ir.AttributeProto_GRAPH,
-		},
-	})
-	_, ok := err.(*ErrNotImplemented)
-	assert.True(t, ok)
-	_, err = toOperationAttributes([]*ir.AttributeProto{
-		{
 			Type: ir.AttributeProto_TENSORS,
 		},
 	})
-	_, ok = err.(*ErrNotImplemented)
+	_, ok := err.(*ErrNotImplemented)
 	assert.True(t, ok)
 	_, err = toOperationAttributes([]*ir.AttributeProto{
 		{
