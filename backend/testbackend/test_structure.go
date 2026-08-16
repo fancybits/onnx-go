@@ -148,7 +148,7 @@ func (tc *TestCase) RunTest(b backend.ComputationBackend, parallel bool) func(t 
 				}
 				assert.Equal(tw, expectedBools, outputBools, "the two boolean tensors should be equal.")
 			} else {
-				assert.InDeltaSlice(tw, tc.ExpectedOutput[i].Data(), output[i].Data(), 1e-6, "the two tensors should be equal.")
+				assertClose(tw, tc.ExpectedOutput[i].Data(), output[i].Data())
 			}
 		}
 
