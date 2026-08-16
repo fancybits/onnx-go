@@ -35,9 +35,9 @@ func (a *min) apply(g *Graph, n ...*Node) error {
 	for _, child := range others {
 		x, y, err := ggnBroadcast(output, child.gorgoniaNode)
 		if err != nil {
-			err, ok := err.(*onnx.ErrNotImplemented)
-			if ok {
-				err.Operator = "Min"
+			var notImpl *onnx.ErrNotImplemented
+			if errors.As(err, &notImpl) {
+				notImpl.Operator = "Min"
 			}
 			return err
 		}
@@ -101,9 +101,9 @@ func (a *max) apply(g *Graph, n ...*Node) error {
 	for _, child := range others {
 		x, y, err := ggnBroadcast(output, child.gorgoniaNode)
 		if err != nil {
-			err, ok := err.(*onnx.ErrNotImplemented)
-			if ok {
-				err.Operator = "Max"
+			var notImpl *onnx.ErrNotImplemented
+			if errors.As(err, &notImpl) {
+				notImpl.Operator = "Max"
 			}
 			return err
 		}

@@ -1,10 +1,14 @@
 package gorgonnx
 
-import "strconv"
+import (
+	"strconv"
+	"sync/atomic"
+)
 
-var uniq int
+// Atomic: a torn increment would give two nodes the same name, which gorgonia
+// hashes and compares on.
+var uniq atomic.Uint64
 
 func getUniqNodeName(prefix string) string {
-	uniq++
-	return prefix + strconv.Itoa(uniq)
+	return prefix + strconv.FormatUint(uniq.Add(1), 10)
 }
