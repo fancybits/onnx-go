@@ -30,13 +30,45 @@ func (n *Node) ID() int64 {
 // SetTensor assign the tensor N to the underlying node
 func (n *Node) SetTensor(t tensor.Tensor) error {
 	n.t = t
-	if n.gorgoniaNode != nil {
-		err := gorgonia.Let(n.gorgoniaNode, t)
-		if err != nil {
-			return err
+	if n.gorgoniaNode == nil {
+		return nil
+	}
+
+	// gorgonia.Let rejects a differently shaped value, and the caller should
+	// not have to Reset by hand to feed a new batch size. Record it and leave
+	// the exprgraph stale; Run rebuilds before executing.
+	//
+	// Only the batch dimension may move. A tensor that differs anywhere else
+	// is a caller mistake, not a rebatch, and must still be reported here --
+	// otherwise a transposed or wrongly-laid-out input is accepted silently
+	// and fails later inside some operator, or not at all.
+	if batchOnlyReshape(n.gorgoniaNode.Shape(), t.Shape()) {
+		return nil
+	}
+
+	return gorgonia.Let(n.gorgoniaNode, t)
+}
+
+// shapeChanged reports that this node carries a tensor the built graph cannot
+// accept.
+func (n *Node) shapeChanged() bool {
+	return n.gorgoniaNode != nil && n.t != nil && batchOnlyReshape(n.gorgoniaNode.Shape(), n.t.Shape())
+}
+
+// batchOnlyReshape reports whether want and got differ only in their leading
+// dimension. Equal shapes are not a reshape.
+func batchOnlyReshape(want, got tensor.Shape) bool {
+	if len(want) != len(got) || len(want) == 0 || want.Eq(got) {
+		return false
+	}
+
+	for i := 1; i < len(want); i++ {
+		if want[i] != got[i] {
+			return false
 		}
 	}
-	return nil
+
+	return true
 }
 
 // GetTensor value from the node

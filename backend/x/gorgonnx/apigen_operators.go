@@ -31,9 +31,9 @@ func (a *hadamardProd) apply(g *Graph, n ...*Node) error {
 
 	x, y, err := broadcast(children[0], children[1])
 	if err != nil {
-		err, ok := err.(*onnx.ErrNotImplemented)
-		if ok {
-			err.Operator = "Mul / hadamardProd"
+		var notImpl *onnx.ErrNotImplemented
+		if errors.As(err, &notImpl) {
+			notImpl.Operator = "Mul / hadamardProd"
 		}
 		return err
 	}
@@ -68,9 +68,9 @@ func (a *hadamardDiv) apply(g *Graph, n ...*Node) error {
 
 	x, y, err := broadcast(children[0], children[1])
 	if err != nil {
-		err, ok := err.(*onnx.ErrNotImplemented)
-		if ok {
-			err.Operator = "Div / hadamardDiv"
+		var notImpl *onnx.ErrNotImplemented
+		if errors.As(err, &notImpl) {
+			notImpl.Operator = "Div / hadamardDiv"
 		}
 		return err
 	}
@@ -121,9 +121,9 @@ func (a *sub) apply(g *Graph, n ...*Node) error {
 
 	x, y, err := broadcast(children[0], children[1])
 	if err != nil {
-		err, ok := err.(*onnx.ErrNotImplemented)
-		if ok {
-			err.Operator = "Sub / sub"
+		var notImpl *onnx.ErrNotImplemented
+		if errors.As(err, &notImpl) {
+			notImpl.Operator = "Sub / sub"
 		}
 		return err
 	}
@@ -174,9 +174,9 @@ func (a *add) apply(g *Graph, n ...*Node) error {
 
 	x, y, err := broadcast(children[0], children[1])
 	if err != nil {
-		err, ok := err.(*onnx.ErrNotImplemented)
-		if ok {
-			err.Operator = "Add / add"
+		var notImpl *onnx.ErrNotImplemented
+		if errors.As(err, &notImpl) {
+			notImpl.Operator = "Add / add"
 		}
 		return err
 	}

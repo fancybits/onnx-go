@@ -17,6 +17,7 @@ type Graph struct {
 	g         *weightedDirectedGraph
 	exprgraph *gorgonia.ExprGraph
 	m         gorgonia.VM
+	vmType    string // the VM kind g.m was compiled as, so a kind change recompiles
 	roots     []int64
 	groups    [][]*Node // a reference of all the nodes that belongs to a group
 }
@@ -55,28 +56,79 @@ func (g *Graph) Run() error {
 	return g.RunWithVM("tape")
 }
 
+// prepare builds the exprgraph and VM the bound inputs require, without
+// executing. It reports whether the VM is newly compiled, which a LispMachine
+// must not have Reset called on before its first run.
+func (g *Graph) prepare(vmType string) (fresh bool, err error) {
+	// A new input shape invalidates the built graph: the old shape is baked
+	// into every node derived from it.
+	if g.exprgraph != nil && g.inputShapeChanged() {
+		g.Reset()
+	}
+
+	if g.exprgraph == nil {
+		if err := g.PopulateExprgraph(); err != nil {
+			return false, err
+		}
+		// A VM held from before is compiled against nodes that no longer exist.
+		g.closeVM()
+	}
+
+	// Validate before touching the cached VM: an unknown name must not cost
+	// the caller the compiled program it already had.
+	switch vmType {
+	case "tape", "lisp":
+	default:
+		return false, errors.New("unknown VM type: " + vmType + " (use 'lisp' or 'tape')")
+	}
+
+	// The compiled program depends only on the exprgraph, not on the values
+	// bound into it, so it is kept and reused; compiling costs about as much
+	// as executing. Everything that discards the exprgraph must therefore
+	// also drop the VM.
+	if g.m != nil && (g.vmType != vmType || !vmReusable(vmType)) {
+		g.closeVM()
+	}
+	if g.m == nil {
+		switch vmType {
+		case "tape":
+			g.m = gorgonia.NewTapeMachine(g.exprgraph)
+		case "lisp":
+			g.m = gorgonia.NewLispMachine(g.exprgraph, gorgonia.ExecuteFwdOnly())
+		}
+		g.vmType = vmType
+
+		return true, nil
+	}
+
+	return false, nil
+}
+
+// vmReusable reports whether a compiled VM of this kind can be rewound and run
+// again.
+//
+// Only the tape machine can. lispMachine.Reset rewinds the backward pass --
+// it sets fwd to the last node, not the first -- while the forward loop runs
+// while fwd < len(sorted). A reused LispMachine therefore re-executes only its
+// final node and returns the previous run's values for everything else, with
+// no error. So lisp gets a fresh VM per run, as it did before VM caching.
+func vmReusable(vmType string) bool {
+	return vmType == "tape"
+}
+
 // RunWithVM runs the graph with the specified VM type ("lisp" or "tape").
 // This is primarily for testing to compare VM behaviors.
 func (g *Graph) RunWithVM(vmType string) error {
-	if g.exprgraph == nil {
-		err := g.PopulateExprgraph()
-		if err != nil {
-			return err
-		}
+	fresh, err := g.prepare(vmType)
+	if err != nil {
+		return err
+	}
+	if !fresh {
+		// Rewind the previous run. A just-compiled VM is already rewound.
+		g.m.Reset()
 	}
 
-	// Create VM based on type
-	switch vmType {
-	case "tape":
-		g.m = gorgonia.NewTapeMachine(g.exprgraph)
-	case "lisp":
-		g.m = gorgonia.NewLispMachine(g.exprgraph, gorgonia.ExecuteFwdOnly())
-	default:
-		return errors.New("unknown VM type: " + vmType + " (use 'lisp' or 'tape')")
-	}
-	defer g.m.Close()
-
-	err := g.m.RunAll()
+	err = g.m.RunAll()
 	if err != nil {
 		return err
 	}
@@ -105,6 +157,41 @@ func (g *Graph) RunWithVM(vmType string) error {
 	return nil
 }
 
+// inputShapeChanged reports whether any leaf carries a tensor the built graph
+// can no longer accept. Operation nodes are skipped: their shapes follow from
+// their inputs.
+func (g *Graph) inputShapeChanged() bool {
+	it := g.g.Nodes()
+	for it.Next() {
+		n := it.Node().(*Node)
+		if n.operation == nil && n.shapeChanged() {
+			return true
+		}
+	}
+
+	return false
+}
+
+// closeVM releases the cached VM, if any. Safe to call when none is held.
+func (g *Graph) closeVM() {
+	if g.m != nil {
+		g.m.Close()
+		g.m = nil
+		g.vmType = ""
+	}
+}
+
+// Close releases the compiled VM, which is retained between runs. The graph
+// stays usable: the next Run recompiles.
+//
+// This is not the graph's bulk -- the VM is a few MiB against ~150 MiB of
+// intermediates held by the operation nodes. Reset frees those, but measured
+// worse: they are reused in place, so returning them only to reallocate them
+// churns the heap.
+func (g *Graph) Close() {
+	g.closeVM()
+}
+
 // Reset clears the gorgonia execution graph, allowing the model to be
 // rebuilt with different input shapes (e.g., different batch sizes).
 // Call this before SetInput when changing batch dimensions.
@@ -127,10 +214,7 @@ func (g *Graph) Reset() {
 	}
 	// Clear the exprgraph - it will be rebuilt on next Run()
 	g.exprgraph = nil
-	if g.m != nil {
-		g.m.Close()
-		g.m = nil
-	}
+	g.closeVM()
 }
 
 // PopulateExprgraph creates the underlynig graph by walking the current graph

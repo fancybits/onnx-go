@@ -36,9 +36,9 @@ func (a *{{ .GorgonnxOp }}) apply(g *Graph, n ...*Node) error {
 	{{ if .Broadcastable }}
 	x, y, err := broadcast(children[0], children[1])
 	if err != nil {
-		err, ok := err.(*onnx.ErrNotImplemented)
-		if ok {
-			err.Operator = "{{ .ONNXOpType }} / {{ .GorgonnxOp }}"
+		var notImpl *onnx.ErrNotImplemented
+		if errors.As(err, &notImpl) {
+			notImpl.Operator = "{{ .ONNXOpType }} / {{ .GorgonnxOp }}"
 		}
 		return err
 	}
