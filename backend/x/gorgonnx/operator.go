@@ -6,13 +6,34 @@ import (
 	"github.com/owulveryck/onnx-go"
 )
 
-func register(optype string, op func() operator) {
-	operators[optype] = op
+// opKey identifies an operator by the operator set domain that defines it and
+// its name. Dispatching on the name alone would let a node from a foreign
+// domain run default-domain semantics under a familiar name, which is the
+// failure mode this key exists to prevent.
+type opKey struct {
+	domain string
+	name   string
 }
 
-var operators = map[string]func() operator{}
+func (k opKey) String() string {
+	if k.domain == onnx.DefaultOpsetDomain {
+		return k.name
+	}
+	return k.domain + "::" + k.name
+}
 
-//var operators = map[string]operator{}
+// register an operator of the default (ai.onnx) domain.
+func register(optype string, op func() operator) {
+	registerDomain(onnx.DefaultOpsetDomain, optype, op)
+}
+
+// registerDomain registers an operator of a named operator set domain, such
+// as ai.onnx.ml.
+func registerDomain(domain, optype string, op func() operator) {
+	operators[opKey{onnx.NormalizeOpsetDomain(domain), optype}] = op
+}
+
+var operators = map[opKey]func() operator{}
 
 type operator interface {
 	// apply analyse the graph to find the children of the node

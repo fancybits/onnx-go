@@ -87,9 +87,10 @@ func (g *Graph) applyOperation(n ...*Node) error {
 	var op operator
 	var opC func() operator
 	var ok bool
-	if opC, ok = operators[n[0].operation.Name]; !ok {
+	key := opKey{onnx.NormalizeOpsetDomain(n[0].operation.Domain), n[0].operation.Name}
+	if opC, ok = operators[key]; !ok {
 		return &onnx.ErrNotImplemented{
-			Operator: n[0].operation.Name,
+			Operator: key.String(),
 		}
 	}
 	op = opC()

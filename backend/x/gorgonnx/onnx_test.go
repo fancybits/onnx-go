@@ -6,6 +6,8 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/owulveryck/onnx-go"
+
 	"github.com/owulveryck/onnx-go/backend/testbackend"
 	_ "github.com/owulveryck/onnx-go/backend/testbackend/onnx"
 	"github.com/owulveryck/onnx-go/backend/testbackend/testreport"
@@ -22,7 +24,12 @@ func TestONNX(t *testing.T) {
 	var testConstructors []func() *testbackend.TestCase
 	if testing.Short() {
 		for optype := range operators {
-			testConstructors = append(testConstructors, testbackend.GetOpTypeTests(optype)...)
+			// The generated conformance fixtures only cover the default
+			// operator set domain.
+			if optype.domain != onnx.DefaultOpsetDomain {
+				continue
+			}
+			testConstructors = append(testConstructors, testbackend.GetOpTypeTests(optype.name)...)
 		}
 	} else {
 		testConstructors = testbackend.GetAllRegisteredTests()

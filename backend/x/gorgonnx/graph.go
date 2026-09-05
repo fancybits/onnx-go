@@ -2,6 +2,7 @@ package gorgonnx
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/owulveryck/onnx-go"
 	"gonum.org/v1/gonum/graph"
@@ -38,6 +39,33 @@ func (g *Graph) GetExprGraph() (*gorgonia.ExprGraph, error) {
 		err = g.PopulateExprgraph()
 	}
 	return g.exprgraph, err
+}
+
+// CheckOpset fulfills the onnx.OpsetChecker interface. It is called once per
+// operator set the model imports, before any node is applied, so that a
+// domain this backend does not implement is refused at load time instead of
+// being dispatched under default-domain semantics.
+func (g *Graph) CheckOpset(domain string, version int64) error {
+	switch domain {
+	case onnx.DefaultOpsetDomain:
+		// The default set has always been accepted at any version; an
+		// operator this backend lacks is reported when it is reached.
+		return nil
+	case mlDomain:
+		if version < mlOpsetMin || version > mlOpsetMax {
+			return &onnx.ErrNotImplemented{
+				Operator: mlDomain,
+				Message: fmt.Sprintf("operator set %s v%d is not supported (supported: v%d to v%d)",
+					mlDomain, version, mlOpsetMin, mlOpsetMax),
+			}
+		}
+		return nil
+	default:
+		return &onnx.ErrNotImplemented{
+			Operator: domain,
+			Message:  "operator set domain " + domain + " is not supported",
+		}
+	}
 }
 
 // ApplyOperation to fulfill the onnx.Backend interface

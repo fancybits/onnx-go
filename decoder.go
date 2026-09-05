@@ -115,9 +115,33 @@ func (m *Model) decodeProto(model *ir.ModelProto) error {
 	if len(model.Graph.Input)+len(model.Graph.Output) == 0 {
 		return errGraphNoIO
 	}
+	if err := m.checkOpsetImports(model); err != nil {
+		return err
+	}
 	err := m.applyModelProtoGraph(model)
 	if err != nil {
 		return err
+	}
+	return nil
+}
+
+// checkOpsetImports asks the backend to accept or reject every operator set
+// the model declares, before any node is applied. A backend that does not
+// implement OpsetChecker accepts them all, which is the behaviour every
+// backend had before the check existed.
+func (m *Model) checkOpsetImports(model *ir.ModelProto) error {
+	checker, ok := m.backend.(OpsetChecker)
+	if !ok {
+		return nil
+	}
+	for _, opset := range model.GetOpsetImport() {
+		if opset == nil {
+			continue
+		}
+		domain := NormalizeOpsetDomain(opset.GetDomain())
+		if err := checker.CheckOpset(domain, opset.GetVersion()); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -269,8 +293,9 @@ func applyGraphNodeOperations(dst Backend, db map[string]graph.Node, g *ir.Graph
 			return err
 		}
 		err = dst.ApplyOperation(Operation{
-			node.OpType,
-			attrs,
+			Name:       node.OpType,
+			Domain:     NormalizeOpsetDomain(node.Domain),
+			Attributes: attrs,
 		}, outputNodes...)
 		if err != nil {
 			return err
